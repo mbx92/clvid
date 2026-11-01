@@ -1,0 +1,98 @@
+import { test, expect, type Page } from '@playwright/test'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const email = process.env.CLIPPER_E2E_EMAIL
+const password = process.env.CLIPPER_E2E_PASSWORD
+const clipId = process.env.CLIPPER_E2E_WORKSPACE_CLIP_ID
+const artifacts = resolve(import.meta.dirname, '../../.artifacts/workspace-settings')
+async function login(page: Page) {
+  await page.goto('/login')
+  await page.getByLabel('Email', { exact: true }).fill(email!)
+  await page.getByLabel('Kata sandi', { exact: true }).fill(password!)
+  await page.getByLabel('Kata sandi', { exact: true }).press('Enter')
+  await expect(page.getByRole('heading', { name: 'Proyek', exact: true })).toBeVisible()
+}
+async function fits(page: Page, panel?: string) {
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 2)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2)).toBe(true)
+  if (panel) expect(await page.locator(panel).evaluate(el => el.scrollHeight <= el.clientHeight + 2)).toBe(true)
+}
+async function onScreen(page: Page, name: string) {
+  const box = await page.getByRole('button', { name, exact: true }).boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.y).toBeGreaterThanOrEqual(0)
+  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1)
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
+}
+
+test('account limits persist and compact workspace keeps tools on screen', async ({ page, context }) => {
+  test.skip(!email || !password || !clipId, 'Requires disposable workspace QA account')
+  test.setTimeout(120000)
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.setViewportSize({ width: 1366, height: 768 })
+  await login(page)
+  await page.goto('/settings')
+  await page.getByLabel('Durasi maksimum video sumber (menit)', { exact: false }).fill('120')
+  await page.getByLabel('Ukuran maksimum file (GiB)', { exact: false }).fill('4')
+  await page.getByLabel('Durasi maksimum klip (detik)', { exact: false }).fill('300')
+  await page.getByRole('button', { name: 'Simpan batas', exact: true }).click()
+  await expect(page.getByText('Batas pemrosesan tersimpan.', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('Durasi maksimum video sumber (menit)', { exact: false })).toHaveValue('120')
+  await expect(page.getByLabel('Durasi maksimum klip (detik)', { exact: false })).toHaveValue('300')
+  const settings = await (await context.request.get('/api/v1/settings')).json()
+  expect(settings.max_upload_bytes).toBe(4 * 1024 ** 3)
+  const source = await (await context.request.get(`/api/v1/clips/${clipId}`)).json()
+  const csrf = (await context.cookies()).find(cookie => cookie.name === 'clipper_csrf')!.value
+  const created = await context.request.post(`/api/v1/projects/${source.project_id}/clips`, { headers: { 'X-CSRF-Token': csrf }, data: { title: 'QA workspace compact', start_ms: 0, end_ms: 6000 } })
+  expect(created.status()).toBe(201)
+  const clip = await created.json()
+  expect(clip.limits.max_clip_ms).toBe(300000)
+  await page.goto(`/clips/${clip.id}`)
+  await page.getByRole('tab', { name: 'Tampilan', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Mode framing', exact: true }).click()
+  await page.getByRole('option', { name: 'Gaming (facecam + gameplay)', exact: true }).click()
+  await expect(page.getByTestId('gaming-preview')).toBeVisible()
+  await fits(page, '.editor-panel-content')
+  await onScreen(page, 'Ekspor')
+  await onScreen(page, 'Terapkan batas')
+  await onScreen(page, 'Kanan bawah')
+  mkdirSync(artifacts, { recursive: true })
+  await page.screenshot({ path: resolve(artifacts, 'editor-laptop-area.png') })
+  await page.getByRole('button', { name: 'Susunan panel', exact: true }).click()
+  await fits(page, '.editor-panel-content')
+  await expect(page.getByRole('slider', { name: 'Tinggi panel facecam', exact: true })).toBeVisible()
+  await page.screenshot({ path: resolve(artifacts, 'editor-laptop-layout.png') })
+  await page.getByRole('button', { name: 'Gaya subtitle', exact: true }).click()
+  await fits(page, '.editor-panel-content')
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click()
+  await expect(page.getByText('Revisi 2', { exact: true })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await fits(page)
+  await onScreen(page, 'Ekspor')
+  await onScreen(page, 'Terapkan batas')
+  await page.screenshot({ path: resolve(artifacts, 'editor-mobile-preview.png') })
+  await page.getByRole('button', { name: 'Alat editor', exact: true }).click()
+  await page.getByRole('button', { name: 'Framing', exact: true }).click()
+  await page.getByRole('button', { name: 'Area sumber', exact: true }).click()
+  await fits(page, '.editor-panel-content')
+  await onScreen(page, 'Kanan bawah')
+  await page.screenshot({ path: resolve(artifacts, 'editor-mobile-tools.png') })
+  await page.goto(`/projects/${clip.project_id}`)
+  await fits(page)
+  await onScreen(page, 'Klip manual')
+  await onScreen(page, 'Buat kandidat')
+  await page.screenshot({ path: resolve(artifacts, 'project-mobile.png') })
+  await page.setViewportSize({ width: 1366, height: 768 })
+  await fits(page)
+  await page.screenshot({ path: resolve(artifacts, 'project-laptop.png') })
+  await page.getByRole('button', { name: 'Buat kandidat', exact: true }).click()
+  await expect(page.getByLabel('Maksimum (detik)', { exact: true })).toHaveAttribute('max', '300')
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+  writeFileSync(resolve(artifacts, 'report.json'), JSON.stringify({ settings, clip_id: clip.id,
+    desktop: [1366,768], mobile: [390,844], page_scroll: false, tools_scroll: false, browser_errors: errors }, null, 2))
+})

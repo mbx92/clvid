@@ -1,0 +1,30 @@
+{
+  "upstream": "https://github.com/Junhua-Liao/Light-ASD",
+  "commit": "ed38c232de5efe0261dbd68627c0ade7cdfe14eb",
+  "license": "MIT",
+  "weight": "weight/finetuning_TalkSet.model",
+  "weight_sha256": "efc375833887eefa9d209dc92810e18519b04c3c73ea35a549f2a7f40b7d94d5",
+  "onnx_sha256": "1d2426dd8f50ded8fb43c342af4f35785cdea61815b5b803cf4a153bc544fa18",
+  "onnx_bytes": 4105980,
+  "torch": "2.10.0+cpu",
+  "opset": 17,
+  "input": {
+    "audio": "float32[1,4*T,13] MFCC, PCM16",
+    "video": "float32[1,T,112,112] grayscale0\u2013255"
+  },
+  "output": "float32[T,2] logits; speaking probability=softmax(logits)[:,1]",
+  "parity": [
+    {
+      "frames": 25,
+      "max_absolute_error": 2.0265579223632812e-06
+    },
+    {
+      "frames": 50,
+      "max_absolute_error": 3.337860107421875e-06
+    },
+    {
+      "frames": 100,
+      "max_absolute_error": 2.1457672119140625e-06
+    }
+  ]
+}

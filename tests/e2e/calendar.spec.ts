@@ -1,0 +1,96 @@
+import { test, expect } from '@playwright/test'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { localInput, utcInput } from '../../apps/web/app/utils/calendar'
+const artifacts = resolve(import.meta.dirname, '../../.artifacts/calendar')
+
+test('calendar plans three platforms with persisted WITA dates and no unapproved upload', async ({ page, context }) => {
+  test.skip(!process.env.CLIPPER_E2E_WORKSPACE_CLIP_ID, 'Requires disposable QA account')
+  test.setTimeout(120000)
+  async function choose(label:string, option:string) { await page.getByRole('combobox',{name:label,exact:true}).click(); await page.getByRole('option',{name:option,exact:true}).click() }
+  const errors: string[] = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.setViewportSize({ width:1366,height:900 })
+  await page.goto('/login')
+  await page.getByLabel('Email',{exact:true}).fill(process.env.CLIPPER_E2E_EMAIL!)
+  await page.getByLabel('Kata sandi',{exact:true}).fill(process.env.CLIPPER_E2E_PASSWORD!)
+  await page.getByLabel('Kata sandi',{exact:true}).press('Enter')
+  await expect(page.getByRole('heading',{name:'Proyek',exact:true})).toBeVisible()
+  const csrf=(await context.cookies()).find(c => c.name==='clipper_csrf')!.value
+  const source=await (await context.request.get(`/api/v1/clips/${process.env.CLIPPER_E2E_WORKSPACE_CLIP_ID}`)).json()
+  const created=await context.request.post(`/api/v1/projects/${source.project_id}/clips`,{headers:{'X-CSRF-Token':csrf},data:{title:'QA kalender publikasi',start_ms:0,end_ms:6000,crop_json:{mode:'fit',tracking:'static',x:.5,y:.5},subtitle_style_json:{enabled:false}}})
+  expect(created.status()).toBe(201)
+  const clip=await created.json()
+  const rendered=await context.request.post(`/api/v1/clips/${clip.id}/exports`,{headers:{'X-CSRF-Token':csrf},data:{revision:1,resolution:720}})
+  expect(rendered.status()).toBe(202)
+  const jobId=(await rendered.json()).id
+  await expect.poll(async () => (await (await context.request.get(`/api/v1/jobs/${jobId}`)).json()).status,{timeout:90000}).toBe('succeeded')
+  const outputs=await (await context.request.get('/api/v1/social/exports')).json()
+  const output=outputs.items.find((e:any) => e.title==='QA kalender publikasi')
+  expect(output).toBeTruthy()
+  await page.goto(`/calendar?export=${output.id}`)
+  await expect(page.getByRole('dialog',{name:'Jadwal publikasi baru'})).toBeVisible()
+  await expect(page.getByRole('combobox',{name:'Video hasil ekspor',exact:true})).toContainText('QA kalender publikasi')
+  const day=localInput(new Date(Date.now()+2*86400000),'Asia/Makassar').slice(0,10)
+  const targets=[['youtube','QA YouTube'],['instagram','QA Instagram'],['tiktok','QA TikTok']]
+  mkdirSync(artifacts,{recursive:true})
+  for (let i=0;i<targets.length;i++) {
+    if (i) await page.getByRole('button',{name:'Tambah jadwal',exact:true}).click()
+    await choose('Video hasil ekspor','QA kalender publikasi / revisi 1')
+    await choose('Platform publikasi', ['YouTube / Shorts','Instagram Reels','TikTok'][i]!)
+    await page.getByLabel('Judul publikasi',{exact:true}).fill(targets[i]![1]!)
+    await page.getByLabel('Caption publikasi',{exact:true}).fill('Caption dapat disunting sebelum publikasi.')
+    await page.getByLabel('Tanggal dan jam publikasi',{exact:true}).fill(day+'T00:15')
+    await expect(page.getByRole('button',{name:'Jadwalkan publikasi',exact:true})).toBeDisabled()
+    if (i===2) {
+      await page.getByRole('button',{name:'Opsi publikasi',exact:true}).click()
+      await expect(page.getByRole('combobox',{name:'Visibilitas publikasi',exact:true})).toContainText('Pilih visibilitas')
+      await expect(page.getByLabel('Izinkan komentar',{exact:true})).not.toBeChecked()
+      await page.getByLabel('Konten mempromosikan merek, produk, atau layanan',{exact:true}).check()
+      await page.getByLabel('Promosi merek/usaha sendiri (Promotional content)',{exact:true}).check()
+      await expect(page.getByText('Video akan diberi label Promotional content.',{exact:true})).toBeVisible()
+      await page.getByLabel('Konten mempromosikan merek, produk, atau layanan',{exact:true}).uncheck()
+      await page.screenshot({path:resolve(artifacts,'publication-form.png')})
+    }
+    await page.getByRole('button',{name:'Simpan draft',exact:true}).click()
+    await expect(page.getByRole('dialog',{name:'Jadwal publikasi baru'})).toHaveCount(0)
+    await expect(page.getByRole('button',{name:`${day}, ${i+1} publikasi`,exact:true})).toBeVisible()
+  }
+  await page.goto('/calendar')
+  await page.getByRole('button',{name:`${day}, 3 publikasi`,exact:true}).click()
+  await expect(page.locator('.agenda-post')).toHaveCount(3)
+  async function showPost(title:string) {
+    await page.getByRole('heading',{name:title,exact:true}).scrollIntoViewIfNeeded()
+  }
+  await showPost('QA YouTube')
+  const row=page.locator('.agenda-post').filter({has:page.getByRole('heading',{name:'QA YouTube',exact:true})})
+  await row.getByRole('button',{name:'Edit jadwal',exact:true}).click()
+  await page.getByLabel('Judul publikasi',{exact:true}).fill('QA YouTube diperbarui')
+  await page.getByRole('button',{name:'Simpan draft',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'QA YouTube diperbarui',exact:true})).toBeVisible()
+  await showPost('QA Instagram')
+  await page.locator('.agenda-post').filter({has:page.getByRole('heading',{name:'QA Instagram',exact:true})}).getByRole('button',{name:'Batalkan',exact:true}).click()
+  await expect(page.locator('.agenda-post').filter({has:page.getByRole('heading',{name:'QA Instagram',exact:true})})).toContainText('Dibatalkan')
+  mkdirSync(artifacts,{recursive:true})
+  await page.evaluate(() => window.scrollTo(0,0))
+  await page.screenshot({path:resolve(artifacts,'calendar-desktop.png'),fullPage:true})
+  await choose('Zona waktu kalender','WIB (UTC+7)')
+  const previous=new Date(Date.parse(day+'T00:00Z')-86400000).toISOString().slice(0,10)
+  await page.getByRole('button',{name:`${previous}, 3 publikasi`,exact:true}).click()
+  await expect(page.locator('.agenda-time').first()).toHaveText('23:15')
+  await page.setViewportSize({width:390,height:844})
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth+2)).toBe(true)
+  await page.evaluate(() => window.scrollTo(0,0))
+  await page.screenshot({path:resolve(artifacts,'calendar-mobile.png'),fullPage:true})
+  await page.goto('/settings?section=accounts')
+  await expect(page.getByRole('heading',{name:'Koneksi akun publikasi',exact:true})).toBeVisible()
+  await page.evaluate(() => window.scrollTo(0,0))
+  await page.screenshot({path:resolve(artifacts,'connections-mobile.png'),fullPage:true})
+  const period={start:utcInput(previous+'T00:00','Asia/Jakarta'),end:utcInput(day+'T23:59','Asia/Makassar')}
+  const posts=await (await context.request.get('/api/v1/social/posts',{params:period})).json()
+  expect(posts.items).toHaveLength(3)
+  expect(posts.items.every((p:any) => ['draft','cancelled'].includes(p.status) && !p.remote_id)).toBe(true)
+  expect(new Date(posts.items[0].scheduled_at).toISOString()).toBe(utcInput(day+'T00:15','Asia/Makassar'))
+  expect(errors).toEqual([])
+  writeFileSync(resolve(artifacts,'report.json'),JSON.stringify({export_id:output.id,posts:posts.items,errors},null,2))
+})

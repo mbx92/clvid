@@ -1,0 +1,346 @@
+# Clipper
+
+Workspace editorial berbahasa Indonesia untuk mengunggah MP4 atau mengimpor URL video publik, membuat klip
+manual atau kandidat dari transkrip, memperbaiki subtitle, dan mengekspor video
+vertikal. Nuxt/Vue/TypeScript + Tailwind CSS v4/Lucide, FastAPI, PostgreSQL,
+Celery/Redis, FFmpeg, faster-whisper lokal, dan DeepSeek.
+
+Status implementasi dan bukti yang **sudah** diuji ada di
+[docs/PROGRESS.md](docs/PROGRESS.md). Ini bukan klaim production-ready. Tidak ada
+akun bawaan, data demo pada aplikasi, atau fallback AI palsu.
+
+## Menjalankan dengan Docker Compose
+
+Prasyarat: Docker Engine/Desktop dengan Linux containers dan Compose v2, Python
+3.10+ untuk generator `.env`, koneksi internet saat mengunduh image/dependensi
+dan model pertama kali. Seluruh layanan aplikasi hanya dipublikasikan melalui
+`127.0.0.1:8080`; PostgreSQL/Redis tidak dipublikasikan ke host.
+
+Jalankan dari root repository:
+
+```sh
+python scripts/init_env.py
+docker compose build
+docker compose up -d postgres redis
+docker compose run --rm api alembic upgrade head
+docker compose run --rm api python -m app.cli create-user
+docker compose run --rm api python -m app.cli download-model
+docker compose up -d
+```
+
+Buka **http://localhost:8080**. CLI meminta email dan password minimal 12 karakter
+secara interaktif. Tidak ada registrasi publik. `download-model` menggunakan
+Whisper multilingual `small`, CPU/int8 dan menyimpan cache di named volume;
+langkah ini dapat dilewati bila hanya menggunakan klip manual. Menjalankan
+migrasi berulang aman. Backup dahulu sebelum migrasi pada instalasi berisi data.
+
+`.env` dibuat dengan password PostgreSQL acak dan tidak ditimpa bila sudah ada.
+Jangan menggunakan placeholder `.env.example` sebagai password. Jika port
+berubah, sesuaikan `APP_PORT` **dan** `APP_ORIGIN` agar CSRF tetap cocok. Jika
+dipasang di balik HTTPS, gunakan origin HTTPS dan `COOKIE_SECURE=true`.
+
+### Instalasi Windows lokal di drive G:
+
+Pada host pengembangan ini Docker Desktop terpasang di `G:\Docker\Desktop`.
+Image, volume database/media/model dan disk WSL berada di `G:\Docker\wsl`;
+swap WSL juga diarahkan ke sana melalui `%USERPROFILE%\.wslconfig`.
+Plugin CLI disimpan di `G:\Docker\cli-plugins`, dengan junction dari
+`%USERPROFILE%\.docker\cli-plugins`. Konfigurasi/log kecil tetap mengikuti
+direktori profil Windows. Jangan memindahkan atau menghapus file VHDX saat aktif.
+
+Setelah restart Windows, buka Docker Desktop, lalu jalankan `docker compose up -d`
+dari repository ini. Terminal yang sudah terbuka sebelum instalasi perlu dibuka
+ulang agar PATH baru terbaca. Kredensial bootstrap lokal tersedia di
+`.runtime/admin-login.txt` (diabaikan Git); gunakan CLI `reset-password` untuk
+mengganti kata sandi. Rekomendasi DeepSeek memerlukan key sendiri di `.env`.
+
+Untuk rekomendasi, isi `DEEPSEEK_API_KEY` di `.env` backend secara lokal lalu
+recreate layanan backend:
+
+```sh
+docker compose up -d --force-recreate api worker-heavy worker-light dispatcher scheduler
+```
+
+Model default `deepseek-flash` diverifikasi dari
+[dokumentasi DeepSeek](https://api-docs.deepseek.com/quick_start/pricing/) pada
+1 November 2026. Model dan base URL dapat diubah. Tanpa key, upload, transkripsi,
+klip manual, dan render tetap tersedia; analisis menampilkan error konfigurasi.
+Jangan menaruh key di frontend, source code, atau chat. Biaya ditampilkan sebagai
+token karena tarif uang belum dikonfigurasi.
+
+## Menggunakan workspace
+
+Publikasi dan kalender tersedia melalui **Kalender** atau **Jadwalkan** pada hasil
+ekspor. Koneksi YouTube, Instagram, dan TikTok dikelola melalui **Pengaturan →
+Koneksi akun**. Draft mendukung ketiga platform; pengiriman otomatis memerlukan
+koneksi OAuth dan kesiapan API masing-masing platform. Ikuti
+[panduan koneksi dan kalender](docs/SOCIAL-PUBLISHING.md). TikTok memiliki batasan
+audit/penggunaan untuk aplikasi lokal pribadi; kalender tidak melewati aturan itu.
+
+Pada **Pengaturan → Batas pemrosesan**, ubah batas durasi sumber (1–720 menit),
+ukuran file (hingga 64 GiB), dan durasi maksimum klip (5–600 detik). Default
+instalasi tetap 60 menit, 2 GiB, dan 180 detik. Pengaturan disimpan per akun dan
+berlaku untuk upload maupun impor URL. Job menyimpan batas saat dibuat;
+percobaan ulang memakai batas terbaru. Menurunkan batas tidak menghapus klip lama.
+
+Workspace mengikuti tinggi layar. Kontrol preview, trim, simpan, dan ekspor
+tetap terlihat; daftar klip, transkrip, dan ekspor panjang bergulir di panelnya.
+Di ponsel, gunakan tab **Preview / Alat editor**. Pengaturan tampilan dibagi
+menjadi **Framing / Gaya subtitle**; gaming memiliki **Area sumber / Susunan panel**.
+
+1. Masuk, buat proyek, lalu pilih **File perangkat** atau **URL video**.
+   Untuk URL, masukkan tautan satu video publik dan pilih **Impor video**.
+   Tunggu unduhan dan validasi selesai; setelah masuk antrean, halaman boleh ditutup.
+2. Untuk alur tanpa AI, pilih **Klip manual**, tentukan durasi (default 5–180 detik), lalu
+   edit subtitle sendiri. Untuk transkripsi, pilih bahasa dan **Transkripsi
+   saja**; **Buat kandidat** menjalankan transkripsi lalu analisis jika perlu.
+3. Di editor, ubah trim, crop/letterbox, dan cue. Pada tab **Tampilan**, pilih
+   **Pelacakan frame → Ikuti wajah** atau **Ikuti pembicara (perkiraan)** untuk
+   crop bergerak. Klik **Analisis preview**, tunggu selesai, lalu putar atau geser
+   video untuk memeriksa gerakan sebelum ekspor. Analisis bisa memakai draft
+   yang belum disimpan; **Simpan** tetap menghasilkan revisi baru.
+4. Ekspor revisi tersimpan ke 720×1280 atau 1080×1920. Hasil lama tetap tersedia.
+   Tab Ekspor menyediakan MP4, SRT, serta preview render final.
+5. Hapus proyek melalui dialog bernama. Akses dicabut segera; worker membatalkan
+   pemrosesan aktif lalu membersihkan file dan teks proyek.
+
+Impor URL memakai `yt-dlp` dan mendukung MP4 langsung, YouTube, serta situs
+yang didukung extractor seperti TikTok dan Instagram. Dukungan bukan jaminan
+setiap URL dapat diunduh: sumber dapat membatasi akses berdasarkan login, lokasi,
+anti-bot, atau format. Video privat, DRM, playlist/profil dan siaran langsung
+tidak didukung. Tidak ada pengambilan cookie browser. Gunakan video yang Anda
+miliki atau boleh gunakan. Batas default tetap 2 GiB, 60 menit dan 3840×2160;
+unduhan secara default dibatasi hingga 1080p jika tersedia (`IMPORT_MAX_HEIGHT`).
+H.264 diprioritaskan pada tingkat resolusi yang sama untuk mengurangi waktu
+decode dan kebutuhan preview tambahan. Sumber tetap divalidasi penuh; bila
+perlu preview, validasi decode dilakukan sekaligus dengan pembuatan preview.
+Untuk mempertahankan lebih banyak detail dari sumber 4K, ubah
+`IMPORT_MAX_HEIGHT=2160`; unduhan dan pemrosesan akan membutuhkan lebih banyak
+waktu serta ruang. Perubahan ini berlaku pada impor baru.
+
+URL hanya menerima HTTP/HTTPS publik pada port80/443. Resolver dan koneksi
+unduhan memblokir IP lokal/private termasuk redirect dan DNS rebinding.
+FFmpeg dibatasi pada file hasil unduhan lokal; proses downloader tidak menerima
+API key atau kredensial database. URL dengan query token tidak ditampilkan di
+respons job/log aplikasi dan dihapus dari data job ketika proyek dihapus.
+Unduhan gagal/dibatalkan dibersihkan dan dapat dicoba lagi melalui kartu pekerjaan.
+Docker sudah menyertakan Node untuk challenge JavaScript YouTube dan EJS dari
+lockfile; tanpa Docker, sediakan Node22+ pada PATH selain FFmpeg.
+
+Render menggunakan video asli dan decode/re-encode. Preview CSS mendekati crop
+dan subtitle; file hasil render adalah acuan font wrapping dan timing.
+Preview editor mengikuti jalur pelacakan setelah **Analisis preview** selesai,
+termasuk saat pause/seek. Analisis hanya memindai durasi klip terpilih. **Ikuti
+wajah** mempertahankan satu wajah selama masih terlihat. **Ikuti pembicara
+(perkiraan)** memakai YuNet dan model audiovisual Light-ASD lokal untuk menilai
+kecocokan audio dengan urutan gambar setiap wajah, lalu berpindah ketika bukti
+cukup konsisten. Ini bukan identifikasi orang atau diarization suara. Ucapan
+tumpang tindih, wajah kecil/tertutup, audio tidak sinkron, atau pembicara di luar
+frame dapat membuat pilihan keliru; periksa preview dan hasil final.
+Jika tidak ada wajah, posisi manual digunakan dan alasannya ditampilkan.
+Kegagalan model/proses pada analisis preview ditampilkan sebagai pekerjaan gagal
+yang dapat dicoba lagi; render yang memakai fallback menyebutkan alasannya.
+Jika sumber, batas klip,
+mode atau posisi cadangan berubah, analisis lama tidak dipakai untuk draft itu;
+jalankan **Analisis preview** lagi. Perubahan judul/subtitle tidak membatalkan
+analisis. Jalur yang sesuai disimpan dan dipakai ulang saat ekspor, sehingga
+tidak perlu memindai wajah lagi. Klip lama tetap manual sampai opsi pelacakan
+dipilih; preview tidak membuat revisi ataupun MP4 baru. Perubahan model atau
+algoritma juga mengganti signature analisis agar jalur lama tidak dipakai sebagai
+hasil versi baru. Riwayat ekspor lama tetap tersedia dengan metadata aslinya.
+Model wajah dan pembicara dibundel; inferensi menggunakan ONNX Runtime CPU,
+tanpa Torch atau panggilan API untuk audio/video. Lisensi MIT, provenance,
+checksum dan cara mereproduksi ekspor model dijelaskan di
+[dokumentasi model](services/backend/models/README.md).
+Subtitle berasal dari ucapan/cue yang disunting, bukan ringkasan judul AI.
+Di **Tampilan → Gaya subtitle**, tersedia preset Klasik, Bold putih, Kuning,
+Neon, Kotak pop, dan Minimal, serta warna teks/latar/outline, ketebalan outline,
+bayangan, tebal, miring, dan kapital. Ini preset statis bergaya editor video;
+belum ada animasi atau highlight kata per kata. Gaya berlaku pada preview dan
+MP4 burn-in; teks SRT tetap asli.
+
+Pada **Teks muncul**, pilih **Kata per kata mengikuti suara** untuk menampilkan
+kata hanya selama timestamp ucapannya, termasuk jeda tanpa teks. Mode ini
+memakai timestamp kata pada versi transkrip yang terhubung ke klip, berlaku
+pada preview dan ekspor. Token ASR yang membentuk satu kata digabung berdasarkan
+teks yang cocok. Jika timestamp tidak tersedia, berdurasi nol, atau teks telah
+diubah sehingga tidak cocok, cue ditandai dan ekspor mode ini ditolak; pilih
+**Kalimat lengkap** atau gunakan teks transkrip yang cocok. Timing tidak ditebak
+dengan membagi rata durasi kalimat. SRT tetap berisi cue lengkap.
+
+Menggeser ukuran teks menonaktifkan pengecilan otomatis: ukuran yang dipilih
+benar-benar dipakai, dengan pembungkusan maksimal empat baris. Aktifkan
+**Kecilkan otomatis agar muat dua baris** untuk perilaku sebelumnya; ukuran
+efektif cue ditampilkan. Cue terlalu panjang ditolak saat ekspor dengan pesan
+untuk memecah atau memendekkan teks. Draft koreksi tetap
+tersimpan. Pemecahan otomatis transkrip hanya memakai word timestamps yang
+tersedia, tanpa mengarang waktu kata.
+Resize tidak meningkatkan detail sumber. CPU-only tidak menjanjikan kecepatan
+tertentu; catat hasil benchmark pada perangkat yang akan dipakai.
+
+### Klip gaming dengan facecam
+
+Untuk video yang sudah memuat facecam dan gameplay dalam satu sumber, buka
+editor klip lalu pilih **Tampilan → Mode video → Gaming (facecam + gameplay)**.
+Pilih **Area facecam**, gunakan preset sudut lalu geser/ubah ukuran kotak agar
+sesuai webcam kreator. **Area gameplay** dapat memakai seluruh video atau area
+yang dipilih. Kotak juga dapat diatur melalui angka persentase dan keyboard.
+
+Facecam ditampilkan di atas, gameplay di bawah. Tinggi panel facecam dapat
+diatur 15–45%. Gameplay memakai **Tampilkan seluruh area** secara default untuk
+mempertahankan HUD dan konteks; **Isi panel (crop)** memperbesar gambar dengan
+memotong tepinya. Preview langsung berubah saat mengatur area, pause, atau seek,
+tanpa pekerjaan analisis baru. Kedua panel berasal dari satu pemutar, sehingga
+audio dan waktu tetap sinkron. Simpan pengaturan sebelum ekspor.
+
+Ini adalah layout untuk sumber yang sudah digabung, bukan penggabungan dua file
+terpisah atau deteksi otomatis momen intens dalam game. Pemilihan klip AI masih
+berdasarkan transkrip; batas klip dapat disunting manual. Facecam asli mungkin
+tetap terlihat di area gameplay, dan gambar permainan yang sudah tertutup
+facecam pada sumber tidak tersedia untuk dipulihkan melalui crop.
+
+### Akselerasi transkripsi NVIDIA
+
+GPU NVIDIA yang dapat diakses Docker/WSL2 bisa memakai worker CUDA terpisah:
+
+```sh
+docker compose -f compose.yml -f compose.gpu.yml build
+docker compose -f compose.yml -f compose.gpu.yml up -d
+```
+
+Image GPU menyertakan CUDA 12/cuDNN 9 untuk faster-whisper. Mode `auto` memilih
+CUDA/float16 dengan batch 8; bila gagal, worker mencoba CPU/int8 satu kali dan
+mencatat alasan serta perangkat yang benar-benar digunakan pada metadata job.
+Model tetap `small` multilingual dan beam 5. Hanya satu pekerjaan berat berjalan
+sekaligus untuk menjaga penggunaan VRAM. Override GPU memberi worker 4 inti CPU.
+Instalasi CPU dapat tetap memakai `compose.yml` saja.
+
+Pada host Windows ini `.env` mengaktifkan kedua file secara persisten
+dengan `COMPOSE_FILE=compose.yml;compose.gpu.yml` dan `COMPOSE_PATH_SEPARATOR=;`.
+Dengan konfigurasi tersebut, perintah `docker compose up -d` biasa tetap memakai
+worker GPU. File dan cache Docker tetap di drive G:.
+
+## Perintah pemeliharaan
+
+```sh
+docker compose logs --tail=100 api worker-heavy worker-light dispatcher scheduler
+docker compose run --rm api python -m app.cli reset-password --email editor@example.com
+docker compose stop
+docker compose up -d
+```
+
+Reset password mencabut sesi lama. `stop` mempertahankan volume. Jangan menjalankan
+`docker compose down -v` kecuali memang bermaksud menghapus seluruh database,
+video, dan model cache. Backup pemulihan harus mencakup database **dan** volume
+media yang konsisten; cache model dapat diunduh ulang.
+
+Antrean dan lease disimpan di PostgreSQL. Dispatcher mengirim transactional
+outbox; scheduler memulihkan lease kedaluwarsa dan pengiriman broker yang hilang.
+Heavy worker menggunakan concurrency/prefetch 1. Timeout, lease, batas upaya,
+upload, disk reserve, serta TTL ada di `.env.example`. Pembatalan subprocess
+bersifat kooperatif: heartbeat default 15 detik, polling proses 0,2 detik, lalu
+SIGTERM dan SIGKILL setelah grace 3 detik jika diperlukan. Request provider
+yang sedang berjalan dapat menunggu timeout dan tetap dikenai biaya.
+
+Upload terputus diulang dari awal. Upload yang proses API-nya mati dipulihkan
+oleh cleanup setelah TTL 24 jam. Scratch attempt terminal dibersihkan setelah
+24 jam, sumber/hasil resmi tidak dihapus otomatis. Bila disk hampir penuh,
+hapus proyek yang tidak dibutuhkan melalui aplikasi atau tambah ruang.
+
+## Pengembangan dan pengujian
+
+Backend memerlukan Python 3.11–3.13; local QA menggunakan Python 3.12. Frontend
+dipin ke Node 24.15.0 untuk build. Dependency lengkap tersimpan di
+`services/backend/uv.lock` dan `apps/web/package-lock.json`.
+
+```sh
+cd services/backend
+uv sync --frozen --extra transcription
+uv run --extra transcription pytest ../../tests -q
+cd ../../apps/web
+npm ci
+npm run typecheck
+npm run build
+```
+
+Tes media membutuhkan FFmpeg + FFprobe dengan libx264/libass pada PATH, atau
+variabel `FFMPEG_PATH`/`FFPROBE_PATH`. Tes default menggunakan database SQLite
+terisolasi. Untuk menguji locking PostgreSQL, buat database uji yang namanya
+berakhir `_test`, lalu set `CLIPPER_TEST_DATABASE_URL`; suite menolak URL lain.
+Jangan arahkan pengujian ke database produksi. Semua provider terkontrol hanya
+berada pada test suite; konfigurasi normal tidak mengganti provider dengan mock.
+
+Jika menjalankan backend langsung tanpa Docker, set `DATABASE_URL`, `REDIS_URL`,
+`MEDIA_ROOT`, `WHISPER_DOWNLOAD_ROOT`, dan `SUBTITLE_FONT_PATH` ke lokasi lokal.
+Default `/data/...` dan `/app/fonts/...` ditujukan untuk container. Untuk font,
+gunakan path absolut `services/backend/fonts/NotoSans-Regular.ttf`. Jalankan
+API dari `services/backend` agar modul `app` dan `alembic.ini` ditemukan.
+Untuk pelacakan di luar Docker, arahkan `TRACKING_MODEL_PATH` ke file
+`services/backend/models/face_detection_yunet_2023mar.onnx` dan
+`SPEAKER_MODEL_PATH` ke `services/backend/models/light_asd_talkset.onnx`
+yang dibundel. Gunakan path absolut untuk keduanya.
+Nuxt development memakai `http://localhost:3000` dan proxy API lokal port8000;
+sesuaikan `APP_ORIGIN=http://localhost:3000` pada backend. Development server
+sendiri tidak menjalankan dispatcher, scheduler, atau Celery worker.
+
+`redis==6.4.0` dan `av==16.1.0` sengaja dipin karena perubahan protokol default
+Redis client dan signature PyAV versi lebih baru tidak kompatibel dengan jalur
+Kombu/faster-whisper yang digunakan. Upgrade dependensi memerlukan uji antrean
+dan decode audio, bukan hanya keberhasilan instalasi.
+
+Smoke HTTP memakai layanan API, dispatcher, broker, worker, dan database yang
+benar-benar berjalan. Setelah membuat akun uji khusus:
+
+```sh
+python scripts/make_fixture.py
+# Set CLIPPER_SMOKE_EMAIL dan CLIPPER_SMOKE_PASSWORD lewat environment lokal.
+# Opsional: CLIPPER_SMOKE_URL, default http://localhost:8080.
+cd services/backend
+uv run python ../../scripts/smoke_api.py
+```
+
+Smoke membuat proyek pola sintetis, mempertahankannya untuk review, dan menulis
+`.artifacts/acceptance.mp4`, `.artifacts/acceptance.srt`, serta laporan JSON.
+File tersebut diabaikan Git. Fixture tidak menggunakan video pribadi. Pengujian
+UI/browser dan pilot berbeda dari smoke API; lihat progres untuk batas aktual.
+
+Smoke transkripsi audio nyata menggunakan MP4 pendek milik Anda/berizin (5–180
+detik), environment akun smoke yang sama, dan model yang sudah di-cache:
+
+```sh
+cd services/backend
+uv run --extra transcription python ../../scripts/smoke_transcription.py /path/speech.mp4 --language id
+```
+
+Suite browser membutuhkan server web/API/worker yang aktif dan hasil smoke
+API `.artifacts/smoke-report.json`:
+
+```sh
+cd tests/e2e
+npm ci
+npx playwright install chromium
+# Set CLIPPER_E2E_EMAIL, CLIPPER_E2E_PASSWORD untuk akun uji yang sama.
+# CLIPPER_E2E_URL=http://localhost:8080 untuk Compose, default localhost:3000.
+npm test
+```
+
+Dua tes empty-state memerlukan akun uji kedua tanpa proyek melalui CLI, dengan
+`CLIPPER_E2E_EMPTY_EMAIL` dan `CLIPPER_E2E_EMPTY_PASSWORD`; tanpa keduanya tes
+tersebut ditandai skip. Suite utama menciptakan proyek/klip uji dan tidak memakai
+provider palsu. Screenshot disimpan di `.artifacts/ui/` untuk review manual.
+
+## Privasi dan batas MVP
+
+Transkripsi berlangsung di server instalasi ini. Rekomendasi mengirim teks dan
+ID segmen ke DeepSeek, bukan audio/video. Kebijakan retensi provider berlaku
+untuk teks yang sudah dikirim; penghapusan proyek lokal tidak menjamin penghapusan
+di provider. Semua media privat dan download memeriksa sesi serta ownership.
+
+Satu instalasi/satu host dengan shared volume. Pelacakan wajah/pembicara lokal
+dan impor URL tersedia sebagai perluasan setelah PRD awal. Tidak ada
+diarization suara, subtitle karaoke, posting sosial, billing, atau S3.
+Tidak ada skor atau janji viral. Kualitas editorial dan koreksi subtitle tetap
+memerlukan review manusia. Tiga video pilot milik pengguna belum disediakan.
+
+Rincian: [arsitektur](docs/ARCHITECTURE.md), [kontrak API](docs/API.md),
+[PRD](docs/PRD.md), [hasil dan backlog](docs/PROGRESS.md).

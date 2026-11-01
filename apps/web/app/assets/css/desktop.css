@@ -1,0 +1,76 @@
+.social-step { display: grid; gap: 12px; }
+.social-step .social-video-preview { max-height: 150px; }
+@media (min-width: 901px) {
+  html, body, #__nuxt { height: 100%; overflow: clip; overflow-anchor: none; }
+  .app-shell { height: 100dvh; min-height: 0; }
+  .main-content { height: 100%; min-height: 0; overflow: clip; overflow-anchor: none; }
+  .page { height: 100%; min-height: 0; display: flex; flex-direction: column; padding: 22px 28px; }
+  .page-header { flex: none; margin-bottom: 16px; }
+  .page-header h1 { font-size: 25px; }
+  .eyebrow { margin-bottom: 4px; }
+  .desktop-fit { flex: 1; min-height: 0; min-width: 0; overflow: clip; overflow-anchor: none; }
+  .desktop-fit-content { display: flow-root; transform-origin: top left; }
+  .scroll-list { position: relative; flex: 1; min-height: 0; min-width: 0; }
+  .scroll-list, .library-viewport { overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #a7b5ae transparent; }
+  .scroll-list:focus-visible, .library-viewport:focus-visible { outline-offset: -2px; }
+  .toolbar { flex: none; margin-bottom: 12px; }
+  .projects-page > .desktop-fit { flex: 1; }
+  .library-viewport { flex: 1; min-height: 0; }
+  .library-viewport .project-table { overflow: clip; }
+  .library-viewport .project-table-heading { position: sticky; top: 0; z-index: 2; background: #f6f8f5; }
+  .project-row { min-height: 65px; }
+  .pagination { margin-top: 10px; flex: none; }
+  .workspace-note { margin-top: 12px; flex: none; }
+  .settings-tabs { flex: none; }
+  .settings-section { margin-bottom: 0; }
+  .settings-section > header { padding: 18px 22px 12px; }
+  .settings-section .scroll-list { height: 220px; }
+  .fixed-workspace .source-panel, .fixed-workspace .editor-workspace,
+  .fixed-workspace .editor-panel-content, .fixed-workspace #project-panel,
+  .fixed-workspace .jobs-panel { overflow: hidden; }
+  .fixed-workspace .editor-panel-content, .fixed-workspace #project-panel,
+  .subtitle-editor, .transcript-panel { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .fixed-workspace .editor-panel-content { padding-bottom: 8px; }
+  .fixed-workspace .source-player { max-height: min(48dvh, 100%); }
+  .fixed-workspace .jobs-panel { height: 154px; max-height: 154px; }
+  .jobs-panel > .scroll-list { height: 100%; }
+  .panel-intro { padding: 10px 16px; flex: none; }
+  .cue-row { padding: 8px 16px; }
+  .cue-row textarea { min-height: 52px; }
+  .clip-row { padding: 12px 16px; }
+  .clip-copy p { margin: 4px 0 6px; }
+  .export-row { padding: 12px 16px; }
+  .add-cue { align-self: flex-start; margin: 8px 16px; flex: none; }
+  .load-more-footer { flex: none; padding: 8px 14px; }
+  .section-note { flex: none; padding: 8px 16px; font-size: 11px; }
+  .transcript-toolbar { flex: none; padding: 10px 16px; }
+  .empty-state { padding: 24px 20px; }
+  .calendar-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 18px; }
+  .calendar-panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .calendar-toolbar { flex: none; flex-wrap: wrap; padding: 10px 12px; gap: 8px; }
+  .calendar-toolbar .row { gap: 6px; }
+  .calendar-toolbar h2 { min-width: 0; font-size: 16px; }
+  .calendar-toolbar select { font-size: 11px; min-height: 32px; }
+  .calendar-week { flex: none; }
+  .calendar-grid { flex: 1; min-height: 0; grid-template-rows: repeat(6, minmax(0,1fr)); }
+  .calendar-cell { min-height: 0; padding: 4px; overflow: hidden; }
+  .calendar-event { font-size: 9px; padding: 2px; margin-bottom: 2px; }
+  .day-number { width: 20px; height: 20px; margin-bottom: 2px; }
+  .calendar-agenda { margin: 0; display: flex; flex-direction: column; min-height: 0; }
+  .calendar-agenda > header { flex: none; display: block; margin-bottom: 10px; }
+  .calendar-agenda h2 { font-size: 15px; }
+  .agenda-post { flex-wrap: wrap; padding: 14px; gap: 12px; }
+  .agenda-time { font-size: 18px; }
+  .agenda-actions { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; }
+  .calendar-footnote { flex: none; margin-top: 10px; font-size: 10px; }
+  .calendar-page > .notice { padding: 8px 12px; flex: none; }
+  .dialog { overflow: visible; max-height: none; flex: none; }
+  .dialog .final-video { max-height: 55dvh; }
+  .social-post-form .dialog-actions { position: static; padding-top: 6px; }
+  .social-post-form { gap: 10px; }
+  .social-post-form > .notice { padding: 8px 12px; margin: 0; }
+  .login-page { height: 100dvh; min-height: 0; padding: 24px; justify-content: center; }
+  .login-brand { margin-bottom: 20px; }
+  .login-panel { padding: 24px 32px; }
+  .login-footer { margin-top: 16px; }
+}

@@ -1,0 +1,117 @@
+name: clipper
+
+x-backend: &backend
+  image: clipper-backend:local
+  build:
+    context: .
+    dockerfile: infra/backend.Dockerfile
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://clipper:${POSTGRES_PASSWORD:?Jalankan python scripts/init_env.py}@postgres:5432/clipper
+    REDIS_URL: redis://redis:6379/0
+    MEDIA_ROOT: /data/media
+    WHISPER_DOWNLOAD_ROOT: /data/whisper
+    SUBTITLE_FONT_PATH: /app/fonts/NotoSans-Regular.ttf
+  volumes:
+    - media-data:/data/media
+    - whisper-cache:/data/whisper
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 30s
+  security_opt:
+    - no-new-privileges:true
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  gateway:
+    image: caddy:2.11.3-alpine@sha256:86deaf5e3d3408a6ccec08fbb79989783dd26e206ae10bcf78a801dc8c9ab794
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - web
+      - api
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/web.Dockerfile
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  api:
+    <<: *backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/live', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  worker-heavy:
+    <<: *backend
+    command: ["celery", "-A", "app.jobs.celery_app:celery_app", "worker", "-Q", "heavy", "--concurrency=1", "--prefetch-multiplier=1", "--loglevel=WARNING", "--hostname=heavy@%h"]
+    cpus: "${HEAVY_WORKER_CPUS:-4}"
+
+  worker-light:
+    <<: *backend
+    command: ["celery", "-A", "app.jobs.celery_app:celery_app", "worker", "-Q", "light", "--concurrency=2", "--prefetch-multiplier=1", "--loglevel=WARNING", "--hostname=light@%h"]
+
+  dispatcher:
+    <<: *backend
+    command: ["python", "-m", "app.jobs.dispatcher"]
+
+  scheduler:
+    <<: *backend
+    command: ["python", "-m", "app.jobs.reconciler"]
+
+  publisher:
+    <<: *backend
+    command: ["python", "-m", "app.social.publisher"]
+
+  postgres:
+    image: postgres:17.11-bookworm@sha256:839fbb5a4942a7758dd93e18b42ea5649807491a0545b5eeeb8f0b8bb11857a5
+    environment:
+      POSTGRES_USER: clipper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Jalankan python scripts/init_env.py}
+      POSTGRES_DB: clipper
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clipper -d clipper"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.8-alpine@sha256:7aec734b2bb298a1d769fd8729f13b8514a41bf90fcdd1f38ec52267fbaa8ee6
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  media-data:
+  whisper-cache:
+  redis-data:

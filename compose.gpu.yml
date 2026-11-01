@@ -1,0 +1,15 @@
+# Optional NVIDIA/WSL2 acceleration. CPU installations can use compose.yml alone.
+services:
+  worker-heavy:
+    image: clipper-backend-gpu:local
+    build:
+      context: .
+      dockerfile: infra/backend.Dockerfile
+      args:
+        WITH_CUDA: "1"
+    gpus: all
+    cpus: "${HEAVY_WORKER_CPUS:-4}"
+    environment:
+      WHISPER_DEVICE: auto
+      WHISPER_COMPUTE_TYPE: auto
+      WHISPER_BATCH_SIZE: "8"
