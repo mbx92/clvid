@@ -106,6 +106,82 @@ def projects(search: str = "", status: str | None = None, page: int = Query(1, g
     return {"items": [project_data(db, p) for p in rows], "total": total, "page": page, "page_size": page_size}
 
 
+@router.get("/media")
+def media_library(search: str = "", page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """List the current user's stored videos without exposing filesystem paths."""
+    query = select(Project).where(
+        Project.owner_id == user.id,
+        Project.lifecycle_state == "active",
+        Project.source_asset_id.is_not(None),
+    )
+    if search:
+        query = query.where(Project.name.icontains(search, autoescape=True))
+    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    projects = list(db.scalars(query.order_by(Project.updated_at.desc()).offset((page - 1) * page_size).limit(page_size)))
+
+    project_stats: dict[str, dict[str, int]] = {}
+    if projects:
+        rows = db.execute(
+            select(Asset.project_id, Asset.kind, func.count(Asset.id), func.coalesce(func.sum(Asset.bytes), 0))
+            .where(Asset.project_id.in_([project.id for project in projects]), Asset.state != "deleted")
+            .group_by(Asset.project_id, Asset.kind)
+        )
+        for project_id, kind, count, size in rows:
+            stats = project_stats.setdefault(project_id, {"file_count": 0, "video_count": 0, "source_bytes": 0, "preview_bytes": 0, "export_bytes": 0, "subtitle_bytes": 0, "total_bytes": 0})
+            size = int(size or 0)
+            stats["file_count"] += int(count or 0)
+            stats["total_bytes"] += size
+            if kind in ("source", "preview", "export_mp4"):
+                stats["video_count"] += int(count or 0)
+            if kind == "source":
+                stats["source_bytes"] += size
+            elif kind == "preview":
+                stats["preview_bytes"] += size
+            elif kind == "export_mp4":
+                stats["export_bytes"] += size
+            elif kind == "export_srt":
+                stats["subtitle_bytes"] += size
+
+    summary = {"project_count": 0, "video_count": 0, "source_bytes": 0, "preview_bytes": 0, "export_bytes": 0, "subtitle_bytes": 0, "total_bytes": 0}
+    summary["project_count"] = int(db.scalar(select(func.count()).select_from(Project).where(
+        Project.owner_id == user.id, Project.lifecycle_state == "active", Project.source_asset_id.is_not(None)
+    )) or 0)
+    summary_rows = db.execute(
+        select(Asset.kind, func.count(Asset.id), func.coalesce(func.sum(Asset.bytes), 0))
+        .join(Project, Project.id == Asset.project_id)
+        .where(Project.owner_id == user.id, Project.lifecycle_state == "active", Project.source_asset_id.is_not(None), Asset.state != "deleted")
+        .group_by(Asset.kind)
+    )
+    for kind, count, size in summary_rows:
+        size = int(size or 0)
+        summary["total_bytes"] += size
+        if kind in ("source", "preview", "export_mp4"):
+            summary["video_count"] += int(count or 0)
+        if kind == "source":
+            summary["source_bytes"] += size
+        elif kind == "preview":
+            summary["preview_bytes"] += size
+        elif kind == "export_mp4":
+            summary["export_bytes"] += size
+        elif kind == "export_srt":
+            summary["subtitle_bytes"] += size
+
+    items = []
+    for project in projects:
+        source = db.get(Asset, project.source_asset_id)
+        stats = project_stats.get(project.id, {"file_count": 0, "video_count": 0, "source_bytes": 0, "preview_bytes": 0, "export_bytes": 0, "subtitle_bytes": 0, "total_bytes": 0})
+        items.append({
+            "project_id": project.id,
+            "project_name": project.name,
+            "status": project.status,
+            "created_at": project.created_at,
+            "updated_at": project.updated_at,
+            "source_asset": asset_data(source),
+            **stats,
+        })
+    return {"items": items, "total": total, "page": page, "page_size": page_size, "summary": summary}
+
+
 @router.post("/projects", status_code=201)
 def create_project(body: ProjectInput, user: User = Depends(current_user), db: Session = Depends(get_db)):
     project = Project(owner_id=user.id, name=body.name)

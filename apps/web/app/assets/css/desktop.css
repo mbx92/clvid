@@ -16,9 +16,10 @@
   .toolbar { flex: none; margin-bottom: 12px; }
   .projects-page > .desktop-fit { flex: 1; }
   .library-viewport { flex: 1; min-height: 0; }
-  .library-viewport .project-table { overflow: clip; }
-  .library-viewport .project-table-heading { position: sticky; top: 0; z-index: 2; background: #f6f8f5; }
+  .library-viewport .project-table, .library-viewport .media-table { overflow: clip; }
+  .library-viewport .project-table-heading, .library-viewport .media-table-heading { position: sticky; top: 0; z-index: 2; background: #f6f8f5; }
   .project-row { min-height: 65px; }
+  .media-row { min-height: 61px; }
   .pagination { margin-top: 10px; flex: none; }
   .workspace-note { margin-top: 12px; flex: none; }
   .settings-tabs { flex: none; }
