@@ -150,6 +150,7 @@ def _transcribe(ctx: JobContext, scratch: Path):
         _complete(db, ctx, {"transcript_id": transcript.id, "version": version, "segments": len(segments), "runtime": result.get("runtime", {})})
         if segments and job.input_json.get("analyze", True):
             create_job(db, project, "analyze", {"transcript_id": transcript.id,
+                        "content_profile": job.input_json.get("content_profile", "general"),
                         "count": job.input_json.get("count", 5),
                         "min_duration_ms": job.input_json.get("min_duration_ms", 30000),
                         "max_duration_ms": job.input_json.get("max_duration_ms", 60000)}, f"transcript-{transcript.id}")
@@ -174,6 +175,7 @@ def _analyze(ctx: JobContext, scratch: Path):
     settings = ctx.settings
     selection_segments = [{key: value for key, value in segment.items() if key != "words_json"} for segment in segments]
     result = select_clips(selection_segments, duration_ms=source.meta_json["duration_ms"],
+                          content_profile=job.input_json.get("content_profile", "general"),
                           count=job.input_json.get("count", 5), min_duration_ms=job.input_json.get("min_duration_ms", 30000),
                           max_duration_ms=job.input_json.get("max_duration_ms", 60000), api_key=settings.deepseek_api_key,
                           base_url=settings.deepseek_base_url, model=settings.deepseek_model,

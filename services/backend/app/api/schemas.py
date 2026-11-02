@@ -36,6 +36,7 @@ class SourceUrlInput(StrictModel):
 
 class ProcessInput(StrictModel):
     language: Literal["auto", "id", "en"] = "auto"
+    content_profile: Literal["general", "gaming"] = "general"
     count: int = Field(default=5, ge=1, le=20)
     min_duration_ms: int = Field(default=30000, ge=5000, le=MAX_CLIP_MS)
     max_duration_ms: int = Field(default=60000, ge=5000, le=MAX_CLIP_MS)

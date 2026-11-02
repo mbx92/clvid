@@ -18,8 +18,9 @@ dist/
 *.log
 *.db
 *.sqlite*
-media/
+/media/
 /models/
 test-results/
 playwright-report/
 !tests/fixtures/
+credentials/

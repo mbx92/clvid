@@ -1,0 +1,33 @@
+import { expect, test } from '@playwright/test'
+
+test('candidate dialog sends gaming and general profiles without starting real AI jobs', async ({ page }) => {
+  test.skip(!process.env.CLIPPER_E2E_EMAIL || !process.env.CLIPPER_E2E_PROJECT, 'Ready project required')
+  await page.goto('/login')
+  await page.getByLabel('Email', { exact: true }).fill(process.env.CLIPPER_E2E_EMAIL!)
+  await page.getByLabel('Kata sandi', { exact: true }).fill(process.env.CLIPPER_E2E_PASSWORD!)
+  await page.getByRole('button', { name: 'Masuk', exact: true }).click()
+  await expect(page).not.toHaveURL(/\/login/)
+  const bodies: any[] = []
+  await page.route(`**/projects/${process.env.CLIPPER_E2E_PROJECT}/process`, route => {
+    bodies.push(route.request().postDataJSON())
+    return route.fulfill({ status: 202, json: { id: 'qa-profile-only', kind: 'analyze', status: 'queued' } })
+  })
+  await page.goto(`/projects/${process.env.CLIPPER_E2E_PROJECT}`)
+  const dialog = page.getByRole('dialog', { name: 'Siapkan kandidat klip' })
+  await page.getByRole('button', { name: 'Buat kandidat', exact: true }).click()
+  const profile = dialog.getByRole('combobox', { name: 'Jenis konten kandidat', exact: true })
+  await expect(profile).toContainText('Umum / percakapan')
+  await profile.click()
+  await page.getByRole('option', { name: 'Game / gameplay', exact: true }).click()
+  await expect(dialog).toContainText('belum membaca aksi visual')
+  await dialog.getByRole('button', { name: 'Buat kandidat', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(bodies[0]).toMatchObject({ content_profile: 'gaming', min_duration_ms: 30000, max_duration_ms: 60000, analyze: true })
+  await page.getByRole('button', { name: 'Buat kandidat', exact: true }).click()
+  await profile.click()
+  await page.getByRole('option', { name: 'Umum / percakapan', exact: true }).click()
+  await expect(dialog).not.toContainText('belum membaca aksi visual')
+  await dialog.getByRole('button', { name: 'Buat kandidat', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  expect(bodies[1].content_profile).toBe('general')
+})

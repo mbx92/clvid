@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { localInput, utcInput, monthCells, moveMonth, timezones, platformLabels, publicationLabels } from '~/utils/calendar'
+import { localInput, utcInput, monthCells, moveMonth, timezones, platformLabels, publicationLabels, publicationReadiness, singlePublicationAccount } from '~/utils/calendar'
 const api = useApi()
 const route = useRoute()
 const timezone = ref('Asia/Makassar')
@@ -9,6 +9,9 @@ const selected = ref(today())
 const posts = ref<any[]>([])
 const accounts = ref<any[]>([])
 const platforms = ref<any[]>([])
+const connectionsLoading = ref(true)
+const connectionError = ref('')
+let connectionRequest = 0
 const exports = ref<any[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -32,19 +35,32 @@ const blank = () => ({ export_id: '', platform: 'youtube', account_id: '', title
     allow_comment: false, allow_duet: false, allow_stitch: false, commercial_own: false, commercial_paid: false, aigc: false, music_consent: false } })
 const form = ref<ReturnType<typeof blank> | null>(null)
 const chosenExport = computed(() => exports.value.find(e => e.id === form.value?.export_id))
-const chosenAccount = computed(() => accounts.value.find(a => a.id === form.value?.account_id))
-const availableAccounts = computed(() => accounts.value.filter(a => a.platform === form.value?.platform))
-const ready = computed(() => !!chosenAccount.value && platforms.value.find(p => p.id === form.value?.platform)?.publishing_ready)
+const availableAccounts = computed(() => accounts.value.filter(a => a.platform === form.value?.platform && a.connected !== false))
+const readiness = computed(() => publicationReadiness(form.value?.platform || 'youtube', form.value?.account_id || '', accounts.value, platforms.value))
+const ready = computed(() => !connectionsLoading.value && !connectionError.value && readiness.value.ready)
 const privacyOptions = computed(() => form.value?.platform === 'tiktok' ? (creator.value?.privacy_level_options || []).map((value: string) => ({ value, label: ({ SELF_ONLY: 'Hanya saya', PUBLIC_TO_EVERYONE: 'Semua orang', MUTUAL_FOLLOW_FRIENDS: 'Teman', FOLLOWER_OF_CREATOR: 'Pengikut' } as Record<string, string>)[value] || value })) : [{ value: 'private', label: 'Privat' }, { value: 'unlisted', label: 'Tidak publik' }, { value: 'public', label: 'Publik' }])
 const exportOptions = computed(() => exports.value.map(item => ({ value: item.id, label: `${item.title} / revisi ${item.revision}` })))
 const platformOptions = Object.entries(platformLabels).map(([value, label]) => ({ value, label }))
 const accountOptions = computed(() => [{ value: '', label: 'Belum dipilih (draft)' }, ...availableAccounts.value.map(account => ({ value: account.id, label: account.name }))])
 const allowedPrivacyOptions = computed(() => privacyOptions.value.map((option: { value: string; label: string }) => ({ ...option, disabled: form.value?.platform === 'tiktok' && form.value.options.commercial_paid && option.value === 'SELF_ONLY' })))
+async function refreshConnections() {
+  const request = ++connectionRequest
+  connectionsLoading.value = true
+  try {
+    const result = await api<any>('/social/accounts')
+    if (request !== connectionRequest) return false
+    accounts.value = result.items; platforms.value = result.platforms; connectionError.value = ''
+    return true
+  } catch {
+    if (request === connectionRequest) connectionError.value = 'Status koneksi akun gagal dimuat. Coba periksa lagi.'
+    return false
+  } finally { if (request === connectionRequest) connectionsLoading.value = false }
+}
 async function load() {
   loading.value = true
   try {
-    const result = await Promise.all([api<any>('/social/accounts'), api<any>('/social/exports'), api<any>('/social/posts', { query: { start: utcInput(cells.value[0]! + 'T00:00', timezone.value), end: utcInput(new Date(Date.parse(cells.value[41]! + 'T00:00Z') + 86400000).toISOString().slice(0, 10) + 'T00:00', timezone.value) } })])
-    accounts.value = result[0].items; platforms.value = result[0].platforms; exports.value = result[1].items
+    const result = await Promise.all([refreshConnections(), api<any>('/social/exports'), api<any>('/social/posts', { query: { start: utcInput(cells.value[0]! + 'T00:00', timezone.value), end: utcInput(new Date(Date.parse(cells.value[41]! + 'T00:00Z') + 86400000).toISOString().slice(0, 10) + 'T00:00', timezone.value) } })])
+    exports.value = result[1].items
     posts.value = result[2].items.sort((a: any, b: any) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at) || Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id))
     error.value = ''
   } catch (e) { error.value = errorMessage(e) } finally { loading.value = false }
@@ -55,15 +71,20 @@ onMounted(() => {
 watch([month, timezone], load)
 watch(month, value => { if (!selected.value.startsWith(value)) selected.value = value + '-01' })
 usePolling(load, () => !open.value && posts.value.some(p => ['scheduled', 'uploading', 'processing'].includes(p.status)))
-function newPost() { postStep.value = 0; editing.value = null; form.value = blank(); formError.value = ''; creator.value = null; commercialDisclosure.value = false; open.value = true }
+function newPost() {
+  postStep.value = 0; editing.value = null; form.value = blank(); formError.value = ''; creator.value = null; commercialDisclosure.value = false; open.value = true
+  const draft = form.value
+  void refreshConnections().then(ok => { if (ok && open.value && form.value === draft && !draft.account_id) draft.account_id = singlePublicationAccount(draft.platform, accounts.value) })
+}
 function editPost(post: any) {
   postStep.value = 0; editing.value = post; form.value = { ...blank(), ...post, account_id: post.account_id || '', local_time: localInput(post.scheduled_at, timezone.value), consent: false, options: { ...blank().options, ...post.options, audience: post.options.audience || '' } }
   commercialDisclosure.value = !!(post.options.commercial_own || post.options.commercial_paid)
   formError.value = ''; open.value = true
+  void refreshConnections()
 }
 function platformChanged() {
   if (!form.value) return
-  form.value.account_id = ''; form.value.options = blank().options; creator.value = null; form.value.consent = false; commercialDisclosure.value = false
+  form.value.account_id = singlePublicationAccount(form.value.platform, accounts.value); form.value.options = blank().options; creator.value = null; form.value.consent = false; commercialDisclosure.value = false
 }
 watch(commercialDisclosure, value => { if (!value && form.value) { form.value.options.commercial_own = false; form.value.options.commercial_paid = false } })
 watch(() => form.value?.account_id, async (id) => {
@@ -104,13 +125,13 @@ async function action(post: any, name: string) {
       <ScrollList :key="selected" :items="dayPosts" label="agenda" v-slot="{ items }"><article v-for="post in items" :key="post.id" class="panel agenda-post"><div class="agenda-time">{{ clock(post.scheduled_at) }}</div><div class="agenda-main"><span class="muted small">{{ platformLabels[post.platform] }} · {{ post.account_name || 'Akun belum dipilih' }}</span><h3>{{ post.title }}</h3><p>{{ post.caption }}</p><span class="status" :class="`status-${post.status === 'published' ? 'ready' : post.status}`">{{ publicationLabels[post.status] }}</span><span v-if="post.platform === 'youtube' && post.options.privacy" class="muted small"> · {{ post.options.privacy }}</span><p v-if="post.error_message" class="error-text">{{ post.error_message }}</p></div><div class="agenda-actions"><button v-if="['draft', 'scheduled'].includes(post.status)" class="button secondary small-button" @click="editPost(post)">Edit jadwal</button><button v-if="['draft', 'scheduled', 'failed'].includes(post.status)" class="text-button" @click="action(post, 'cancel')">Batalkan</button><button v-if="post.status === 'uncertain'" class="button secondary small-button" @click="action(post, 'check')">Periksa status</button><button v-if="['failed', 'cancelled'].includes(post.status)" class="text-button" @click="action(post, 'draft')">Kembalikan ke draft</button><a v-if="post.remote_url" :href="post.remote_url" target="_blank" rel="noopener noreferrer" class="button secondary small-button">Lihat hasil ↗</a><a v-if="post.preview_url" :href="post.preview_url + '?download=true'" class="text-button">Unduh MP4</a></div></article></ScrollList>
     </section></div>
     <p class="muted small calendar-footnote">Waktu jadwal adalah waktu mulai pengiriman. Proses upload, moderasi, dan pemrosesan platform dapat membuat video tampil lebih lambat. Komputer dan Docker perlu tetap menyala; jadwal yang terlewat saat mati akan diproses setelah layanan kembali aktif.</p>
-    <AppDialog :open="open" :title="editing ? 'Edit jadwal publikasi' : 'Jadwal publikasi baru'" :busy="busy" wide @close="open = false"><form v-if="form" class="social-post-form form-stack" @submit.prevent="save('scheduled')"><InlineError :message="formError" /><p v-if="!exports.length" class="notice">Belum ada hasil ekspor. Ekspor klip menjadi MP4 terlebih dahulu.</p><div class="tool-tabs" role="group" aria-label="Bagian jadwal"><button type="button" :aria-pressed="postStep === 0" @click="postStep = 0">Video & jadwal</button><button type="button" :aria-pressed="postStep === 1" @click="postStep = 1">Opsi publikasi</button></div><div v-show="postStep === 0" class="social-step"><div class="form-grid"><label>Video hasil ekspor<AppSelect v-model="form.export_id" label="Video hasil ekspor" placeholder="Pilih hasil ekspor" required :options="exportOptions" @update:model-value="exportChanged" /></label><label>Platform<AppSelect v-model="form.platform" label="Platform publikasi" :options="platformOptions" @update:model-value="platformChanged" /></label><label>Akun tujuan<AppSelect v-model="form.account_id" label="Akun tujuan" :options="accountOptions" /></label><label>Tanggal dan jam · {{ timezones.find(z => z.value === timezone)?.label }}<input v-model="form.local_time" type="datetime-local" required aria-label="Tanggal dan jam publikasi" /></label></div>
+    <AppDialog :open="open" :title="editing ? 'Edit jadwal publikasi' : 'Jadwal publikasi baru'" :busy="busy" wide @close="open = false"><form v-if="form" class="social-post-form form-stack" @submit.prevent="save('scheduled')"><InlineError :message="formError" /><p v-if="!exports.length" class="notice">Belum ada hasil ekspor. Ekspor klip menjadi MP4 terlebih dahulu.</p><div class="tool-tabs" role="group" aria-label="Bagian jadwal"><button type="button" :aria-pressed="postStep === 0" @click="postStep = 0">Video & jadwal</button><button type="button" :aria-pressed="postStep === 1" @click="postStep = 1">Opsi publikasi</button></div><div v-show="postStep === 0" class="social-step"><div class="form-grid"><label>Video hasil ekspor<AppSelect v-model="form.export_id" label="Video hasil ekspor" placeholder="Pilih hasil ekspor" required :options="exportOptions" @update:model-value="exportChanged" /></label><label>Platform<AppSelect v-model="form.platform" label="Platform publikasi" :options="platformOptions" @update:model-value="platformChanged" /></label><label>Akun tujuan<AppSelect v-model="form.account_id" label="Akun tujuan" :options="accountOptions" :disabled="connectionsLoading" /></label><label>Tanggal dan jam · {{ timezones.find(z => z.value === timezone)?.label }}<input v-model="form.local_time" type="datetime-local" required aria-label="Tanggal dan jam publikasi" /></label></div>
       <video v-if="chosenExport" class="social-video-preview" :src="chosenExport.preview_url" controls preload="metadata" playsinline />
       <label>Judul<input v-model="form.title" required maxlength="100" aria-label="Judul publikasi" /></label><label>Caption / deskripsi<textarea v-model="form.caption" rows="3" :maxlength="form.platform === 'youtube' ? 5000 : 2200" aria-label="Caption publikasi" /></label>
       </div><div v-show="postStep === 1" class="social-step"><div v-if="form.platform !== 'instagram'" class="form-grid"><label>Visibilitas<AppSelect v-model="form.options.privacy" label="Visibilitas publikasi" placeholder="Pilih visibilitas" :options="allowedPrivacyOptions" /></label><label v-if="form.platform === 'youtube'">Audiens<AppSelect v-model="form.options.audience" label="Audiens YouTube" placeholder="Pilih audiens" :options="[{ value: 'general', label: 'Bukan khusus anak-anak' }, { value: 'kids', label: 'Dibuat untuk anak-anak' }]" /></label></div>
       <label v-if="form.platform === 'youtube'" class="checkbox-label"><input v-model="form.options.notify_subscribers" type="checkbox" />Beri tahu subscriber</label><label v-if="form.platform === 'instagram'" class="checkbox-label"><input v-model="form.options.share_to_feed" type="checkbox" />Tampilkan Reel juga di feed</label>
       <template v-if="form.platform === 'tiktok'"><p v-if="creatorLoading" role="status">Memeriksa izin kreator TikTok…</p><p v-if="creator" class="muted small">Tujuan: {{ creator.creator_nickname }} · maksimal {{ creator.max_video_post_duration_sec }} detik</p><div class="social-checks"><label class="checkbox-label"><input v-model="form.options.allow_comment" type="checkbox" :disabled="!creator || creator.comment_disabled" />Izinkan komentar</label><label class="checkbox-label"><input v-model="form.options.allow_duet" type="checkbox" :disabled="!creator || creator.duet_disabled" />Izinkan Duet</label><label class="checkbox-label"><input v-model="form.options.allow_stitch" type="checkbox" :disabled="!creator || creator.stitch_disabled" />Izinkan Stitch</label></div><label class="checkbox-label"><input v-model="commercialDisclosure" type="checkbox" />Konten mempromosikan merek, produk, atau layanan</label><template v-if="commercialDisclosure"><label class="checkbox-label"><input v-model="form.options.commercial_own" type="checkbox" />Promosi merek/usaha sendiri (Promotional content)</label><label class="checkbox-label"><input v-model="form.options.commercial_paid" type="checkbox" :disabled="form.options.privacy === 'SELF_ONLY'" />Kemitraan merek pihak ketiga (Paid partnership)</label><p v-if="form.options.privacy === 'SELF_ONLY'" class="muted small">Kemitraan berbayar tidak dapat menggunakan visibilitas Hanya saya.</p><p v-if="form.options.commercial_paid || form.options.commercial_own" class="notice">Video akan diberi label {{ form.options.commercial_paid ? 'Paid partnership' : 'Promotional content' }}.</p><p v-else class="muted small">Pilih merek sendiri, pihak ketiga, atau keduanya untuk menjadwalkan.</p></template><label class="checkbox-label"><input v-model="form.options.music_consent" type="checkbox" />Saya menyetujui <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener noreferrer">Music Usage Confirmation TikTok</a>.</label></template>
       <label v-if="form.platform !== 'instagram'" class="checkbox-label"><input v-model="form.options.aigc" type="checkbox" />Video memuat konten sintetis / dibuat AI yang perlu dilabeli</label>
-      </div><p v-if="!ready" class="notice">Publikasi otomatis belum siap untuk pilihan ini. <NuxtLink to="/settings?section=accounts">Kelola koneksi akun di Pengaturan.</NuxtLink></p><label class="checkbox-label"><input v-model="form.consent" type="checkbox" />Saya menyetujui pengiriman video dan metadata ini ke akun tujuan pada waktu yang dipilih.</label><div class="dialog-actions"><button type="button" class="button secondary" :disabled="busy || !form.export_id || !form.title || !form.local_time" @click="save('draft')">Simpan draft</button><button class="button primary" type="submit" :disabled="busy || !ready || !form.export_id || !form.title.trim() || !form.local_time || !form.consent || creatorLoading || (form.platform === 'tiktok' && (!creator || !form.options.music_consent || !form.options.privacy || (commercialDisclosure && !form.options.commercial_own && !form.options.commercial_paid)))">Jadwalkan publikasi</button></div></form></AppDialog>
+      </div><p v-if="connectionsLoading" class="notice" role="status">Memeriksa koneksi akun...</p><p v-else-if="connectionError" class="notice" role="alert">{{ connectionError }} <button type="button" class="text-button" @click="refreshConnections">Periksa lagi</button></p><p v-else-if="!readiness.ready" class="notice">{{ readiness.message }} <NuxtLink v-if="readiness.manageConnection" to="/settings?section=accounts">Kelola koneksi akun di Pengaturan.</NuxtLink><button v-else type="button" class="text-button" @click="postStep = 0">Pilih akun tujuan</button></p><label class="checkbox-label"><input v-model="form.consent" type="checkbox" />Saya menyetujui pengiriman video dan metadata ini ke akun tujuan pada waktu yang dipilih.</label><div class="dialog-actions"><button type="button" class="button secondary" :disabled="busy || !form.export_id || !form.title || !form.local_time" @click="save('draft')">Simpan draft</button><button class="button primary" type="submit" :disabled="busy || !ready || !form.export_id || !form.title.trim() || !form.local_time || !form.consent || creatorLoading || (form.platform === 'tiktok' && (!creator || !form.options.music_consent || !form.options.privacy || (commercialDisclosure && !form.options.commercial_own && !form.options.commercial_paid)))">Jadwalkan publikasi</button></div></form></AppDialog>
   </div>
 </template>

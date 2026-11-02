@@ -46,6 +46,11 @@ def test_single_high_resolution_source_remains_usable_when_no_capped_option_exis
     assert selected([video("only-4k", 3840, 2160, "av01"), audio()], target_height=1080) == {"only-4k", "audio"}
 
 
+def test_direct_mp4_without_extractor_dimensions_can_reach_post_download_validation():
+    direct = video("direct", None, None, acodec="mp4a.40.2")
+    assert selected([direct]) == {"direct"}
+
+
 def test_limits_drm_and_external_download_protocols_stay_excluded():
     formats = [video("valid", 1920, 1080), audio(), video("drm", 1920, 1080, has_drm=True),
                video("rtmp", 1920, 1080, protocol="rtmp"), video("8k", 7680, 4320)]

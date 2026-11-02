@@ -1,5 +1,122 @@
 # Progres dan bukti implementasi
 
+## Profil kandidat game — 2 November 2026
+
+- Formulir kandidat menyediakan Umum / percakapan dan Game / gameplay.
+  `content_profile` divalidasi API dan disimpan dalam input job, diteruskan
+  setelah transkripsi, serta dipakai saat menganalisis transkrip tersimpan.
+  Request lama tetap memakai profil general.
+- Prompt gaming meminta petunjuk ucapan untuk hook aksi, boss fight, clutch,
+  combat, reaksi dan penemuan gameplay. Story/other disaring; urutan prioritas
+  diterapkan lintas chunk sebelum deduplikasi dan pembatasan jumlah. ID segmen
+  serta batas durasi tetap divalidasi seperti sebelumnya.
+- Model hanya menerima transkrip: tidak ada deteksi frame, HUD atau suara game.
+  UI dan kegagalan kandidat gaming menjelaskan batas ini. Tidak ada klaim
+  akurasi gameplay tanpa pengujian pada konten nyata.
+- 30 tes backend terkait selector, alur profil dan pengaturan lulus dengan
+  provider/ASR terkendali; typecheck frontend lulus. Playwright memastikan
+  kedua profil dikirim dengan rentang 30–60 detik tanpa memulai job AI nyata.
+- Image backend/web diterapkan setelah memastikan tidak ada job aktif.
+
+## Kesiapan akun tujuan kalender — 2 November 2026
+
+- Akun yang sudah terhubung tetapi belum dipilih sebelumnya mendapat pesan
+  generik seolah konfigurasi OAuth belum siap. Kalender kini membedakan akun
+  belum dipilih, akun belum terhubung, konfigurasi belum lengkap, serta
+  publikasi platform yang belum diaktifkan.
+- Formulir baru menyegarkan koneksi dan memilih satu-satunya akun platform.
+  Beberapa akun tetap memerlukan pilihan pengguna; edit draft mempertahankan
+  tujuan tersimpan. Respons koneksi gagal tidak dianggap sebagai akun terputus.
+- Typecheck dan 41 tes frontend lulus. Playwright dengan akun YouTube lokal
+  terhubung lulus: pemilihan otomatis, tujuan dikosongkan, beberapa akun,
+  kegagalan koneksi dan pemulihan. Tidak ada jadwal atau upload dibuat oleh tes.
+- Perubahan diterapkan pada layanan web; API dan publisher tetap berjalan.
+
+## Generator thumbnail — 2 November 2026
+
+- Styling tambahan: preset Pop 3D (default), Gradasi dan Neon, empat palet,
+  font Display tebal/Modern, serta huruf kapital. Pilihan preset memakai kartu
+  contoh visual; efek canvas ikut masuk ke unduhan JPG.
+- Regresi styling: 39 tes frontend dan typecheck lulus. Playwright memeriksa
+  perubahan piksel untuk tiap efek/palet, pergantian font dan huruf kapital,
+  serta kesamaan byte JPG unduhan dengan encoding preview pada ketiga format.
+- Tombol pada video sumber dan ekspor membuka pemilih frame dengan judul,
+  tiga gaya teks, posisi/ukuran teks, format 16:9, 9:16 atau 1:1, serta fit/crop.
+- Canvas browser menghasilkan JPG; hasil diunduh ke perangkat dan belum
+  disimpan sebagai aset proyek. Tidak ada panggilan AI atau job render tambahan.
+- Typecheck dan 38 tes frontend lulus, ditambah tes regresi judul dengan banyak
+  baris. Tiga tes khusus thumbnail mencakup rasio, pembungkusan dan batas teks.
+- Playwright pada aplikasi lokal lulus: seek frame video terautentikasi,
+  edit judul, decode JPG unduhan untuk memeriksa ketiga ukuran, tampilan mobile,
+  buka ulang dialog, tombol ekspor (fixture browser), dan kegagalan akses video.
+  Screenshot serta JPG hasil pengujian diperiksa secara visual.
+- Image web dibangun dan diterapkan; healthcheck web/API sehat. API dan worker
+  tidak direstart untuk perubahan ini.
+
+## Pemulihan pada komputer baru — 2 November 2026
+
+Paket `services/backend/app/media` tidak ada pada checkout maupun riwayat Git
+yang tersedia. Paket dibangun kembali, dan aturan ignore `media/` dipersempit
+menjadi `/media/` agar source backend tidak hilang lagi dari Git.
+
+Instalasi lokal memakai `http://localhost:8081`. Sepuluh layanan Compose aktif;
+API, web, PostgreSQL dan Redis lolos healthcheck. Data Docker/WSL berada di
+`E:\Docker\wsl`; aplikasi Docker Desktop masih terdaftar di drive C.
+
+Bukti pemulihan lokal (Linux container, database tes SQLite terisolasi):
+
+- 151 tes unit lulus; satu tes pembanding opsional dilewati karena
+  `python_speech_features` tidak dipasang. Vektor referensi MFCC tetap diuji.
+- 177 kasus integrasi lulus melalui beberapa kelompok pengujian. Kegagalan
+  awal pada metadata gaming dan kode error subtitle kata diperbaiki, kemudian
+  seluruh kelompok terkait diuji kembali hingga lulus.
+- Render FFmpeg asli memverifikasi trim, rotasi/SAR, 30 fps, audio, subtitle,
+  crop bergerak, penggunaan ulang analisis, dan dua panel gaming pada 720/1080.
+- Smoke melalui HTTP, PostgreSQL, Redis dan worker asli: login, upload,
+  validasi, klip manual, revisi immutable, MP4/SRT, dan HTTP Range berhasil.
+- Whisper small CPU/int8 diuji pada nada tanpa ucapan (hasil kosong) dan
+  ucapan sintetis bahasa Inggris (tiga segmen, kemudian ekspor bersubtitle).
+  Ini menguji alur kerja, bukan akurasi pada rekaman pengguna.
+- Impor MP4 publik langsung berhasil diunduh dan didekode seluruhnya.
+  Pelacak YuNet dijalankan pada fixture tanpa wajah, dan Light-ASD ONNX asli
+  menghasilkan probabilitas pada input sintetis. Akurasi pembicara pada
+  video manusia belum diukur dalam pemulihan ini.
+
+Hasil smoke disimpan lokal di `.artifacts/`, dengan akun uji terpisah dari akun
+pengguna. Kredensial pengguna ada di `.runtime/admin-login.txt`, tidak dilacak
+Git. Tidak ada panggilan DeepSeek berbayar atau publikasi sosial saat pengujian.
+
+Impor yang direkonstruksi memakai jaringan Python dengan pemeriksaan DNS/IP
+publik dan subprocess FFmpeg lokal. Runtime JavaScript eksternal dinonaktifkan;
+situs yang mewajibkan challenge JavaScript, termasuk sebagian video YouTube,
+belum didukung ulang. Klaim pengujian YouTube di bagian historis berikut tidak
+berlaku sebagai verifikasi modul hasil rekonstruksi ini.
+
+Perbaikan impor YouTube setelah pemulihan:
+
+- `ffmpeg_location` kini di-resolve dari PATH ke lokasi absolut. Nama command
+  `ffmpeg` sebelumnya dianggap sebagai lokasi file yang tidak ada oleh yt-dlp,
+  sehingga video dengan stream audio/video terpisah gagal sebelum diunduh.
+- Opsi input FFmpeg memakai key per postprocessor (`merger+ffmpeg_i` dan
+  padanannya untuk fixup). Key `ffmpeg_i` sebelumnya diabaikan oleh merger,
+  sehingga proses penggabungan ditolak oleh penjaga input lokal.
+- 45 tes terkait impor lulus, termasuk penggabungan dua stream sungguhan oleh
+  yt-dlp/FFmpeg di bawah penjaga subprocess. Pembatasan jaringan tetap aktif.
+- Impor lengkap URL pengguna `xSvjqPsG4Fo` berhasil melalui API/antrean/worker:
+  durasi 3.436.972 ms, 1920×1080, H.264/AAC stereo, 469.215.037 byte. Seluruh
+  video lolos decode, status proyek `ready`, dan akses pemutar HTTP Range 206
+  terverifikasi. Batas akun tetap 180 menit/4 GiB. Laporan lokal disimpan di
+  `.runtime/youtube-import-report.json`.
+- Pesan error impor memakai kode dan petunjuk berbeda untuk komponen server
+  yang hilang, kegagalan penggabungan/konversi, video privat/tidak tersedia,
+  penolakan akses, verifikasi sumber, pembatasan permintaan, gangguan jaringan,
+  format yang tidak tersedia, dan proses impor yang berhenti. Saran menaikkan
+  batas hanya diberikan untuk pelanggaran durasi/ukuran yang terkonfirmasi.
+  Diagnostik provider, path internal, dan token URL tidak disalin ke pesan.
+  64 tes terkait lulus, termasuk penyampaian pesan ke detail proyek dan job.
+
+## Catatan implementasi sebelumnya
+
 Tanggal: **1 November 2026**, timezone pengguna Asia/Makassar.
 
 **Alur inti bekerja dengan media nyata. MVP belum dinyatakan selesai seluruhnya:**

@@ -23,3 +23,21 @@ export function moveMonth(month: string, delta: number) {
 }
 export const platformLabels: Record<string, string> = { youtube: 'YouTube / Shorts', instagram: 'Instagram Reels', tiktok: 'TikTok' }
 export const publicationLabels: Record<string, string> = { draft: 'Draft', scheduled: 'Terjadwal', uploading: 'Mengunggah', processing: 'Diproses platform', published: 'Selesai', failed: 'Gagal', uncertain: 'Perlu diperiksa', cancelled: 'Dibatalkan' }
+
+type PublicationAccount = { id: string; platform: string; connected?: boolean }
+type PublicationPlatform = { id: string; configured: boolean; publishing_ready: boolean }
+export function publicationReadiness(platform: string, accountId: string, accounts: PublicationAccount[], platforms: PublicationPlatform[]) {
+  const config = platforms.find(item => item.id === platform)
+  const available = accounts.filter(item => item.platform === platform && item.connected !== false)
+  const label = platformLabels[platform] || platform
+  if (!config?.configured) return { ready: false, manageConnection: true, message: `Konfigurasi ${label} belum lengkap.` }
+  if (!available.length) return { ready: false, manageConnection: true, message: `Belum ada akun ${label} yang terhubung.` }
+  if (!available.some(item => item.id === accountId)) return { ready: false, manageConnection: false, message: `Akun ${label} sudah terhubung. Pilih Akun tujuan pada bagian Video & jadwal.` }
+  if (!config.publishing_ready) return { ready: false, manageConnection: true, message: platform === 'instagram' ? 'Publikasi Instagram memerlukan URL HTTPS publik untuk video.' : platform === 'tiktok' ? 'Akses publikasi otomatis TikTok belum diaktifkan.' : `Konfigurasi publikasi ${label} belum siap.` }
+  return { ready: true, manageConnection: false, message: '' }
+}
+
+export function singlePublicationAccount(platform: string, accounts: PublicationAccount[]) {
+  const available = accounts.filter(item => item.platform === platform && item.connected !== false)
+  return available.length === 1 ? available[0]!.id : ''
+}

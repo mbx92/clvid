@@ -53,3 +53,21 @@ def test_failed_import_has_no_source_and_cleans_partial_files(clients, database,
     assert detail['status'] == 'failed'
     assert not list(LocalStorage().root.rglob('*.part'))
     assert clients[0].get(f"/api/v1/jobs/{job['id']}").json()['error_code'] == 'url_download_failed'
+
+
+def test_import_server_failure_reaches_project_and_job_without_limit_advice(clients, database, monkeypatch):
+    from app.jobs.tasks import run_job
+    from app.media.import_errors import public_import_error
+    owner = clients[0]
+    pid = owner.post('/api/v1/projects', json={'name': 'Server error message'}).json()['id']
+    job = owner.post(f'/api/v1/projects/{pid}/source-url', json={'url': 'https://example.com/video.mp4'}).json()
+    def failed(*args, **kwargs):
+        raise public_import_error(RuntimeError('private provider URL?token=secret'), phase='merge')
+    monkeypatch.setattr('app.jobs.tasks.download_video', failed)
+    run_job(job['id'])
+    result = owner.get(f"/api/v1/jobs/{job['id']}").json()
+    detail = owner.get(f'/api/v1/projects/{pid}').json()
+    assert result['error_code'] == 'import_merge_failed'
+    assert 'gagal digabungkan' in result['error_message']
+    assert detail['error_message'] == result['error_message']
+    assert 'batas' not in result['error_message'] and 'secret' not in result['error_message']

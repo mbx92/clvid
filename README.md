@@ -9,6 +9,34 @@ Status implementasi dan bukti yang **sudah** diuji ada di
 [docs/PROGRESS.md](docs/PROGRESS.md). Ini bukan klaim production-ready. Tidak ada
 akun bawaan, data demo pada aplikasi, atau fallback AI palsu.
 
+## Kandidat konten game
+
+Pada **Buat kandidat → Jenis konten**, pilih **Game / gameplay**. Profil ini
+memprioritaskan boss fight, clutch/comeback, combat, reaksi terkait aksi dan
+penemuan gameplay. Kandidat story-only disaring; prioritas diterapkan pada
+hasil dari semua bagian transkrip sebelum batas jumlah kandidat digunakan.
+Durasi mengikuti minimum/maksimum yang dipilih dan hasil boleh lebih sedikit.
+
+Analisis ini masih berbasis transkrip, bukan pembacaan frame atau suara game.
+Aksi tanpa ucapan tidak dapat dipastikan otomatis. Tinjau adegan sumber atau
+buat klip manual untuk momen tersebut. Profil Umum / percakapan tetap tersedia.
+
+## Thumbnail dari video
+
+Di halaman proyek, pilih **Buat thumbnail** di bawah video sumber, atau **Thumbnail**
+pada hasil ekspor. Pilih waktu/frame, edit judul, gaya, posisi dan ukuran teks,
+lalu pilih **Unduh JPG**. Format tersedia: YouTube 1280 × 720, vertikal 720 × 1280,
+dan persegi 1080 × 1080. Opsi **Tampilkan seluruh frame** mempertahankan seluruh
+gambar dengan latar gelap; tanpa opsi itu, gambar dipotong dari tengah.
+
+Preview dan JPG dibuat di browser dari video yang dapat diputar. Hasil diunduh
+ke perangkat, belum disimpan sebagai aset proyek. Tidak memerlukan API AI.
+Teks panjang otomatis dibungkus dan diperkecil agar tetap berada dalam gambar.
+Preset **Pop 3D**, **Gradasi**, dan **Neon** menyediakan efek teks dengan empat
+palet warna. Pilih font Display tebal atau Modern, serta opsi huruf kapital.
+Gaya klasik kuning, putih, dan panel gelap tetap tersedia. Semua efek ikut
+dirender ke JPG yang diunduh.
+
 ## Menjalankan dengan Docker Compose
 
 Prasyarat: Docker Engine/Desktop dengan Linux containers dan Compose v2, Python
@@ -39,14 +67,28 @@ Jangan menggunakan placeholder `.env.example` sebagai password. Jika port
 berubah, sesuaikan `APP_PORT` **dan** `APP_ORIGIN` agar CSRF tetap cocok. Jika
 dipasang di balik HTTPS, gunakan origin HTTPS dan `COOKIE_SECURE=true`.
 
-### Instalasi Windows lokal di drive G:
+### Instalasi Windows lokal dengan data di drive E:
 
-Pada host pengembangan ini Docker Desktop terpasang di `G:\Docker\Desktop`.
-Image, volume database/media/model dan disk WSL berada di `G:\Docker\wsl`;
+Image, volume database/media/model dan disk WSL berada di `E:\Docker\wsl`;
 swap WSL juga diarahkan ke sana melalui `%USERPROFILE%\.wslconfig`.
-Plugin CLI disimpan di `G:\Docker\cli-plugins`, dengan junction dari
-`%USERPROFILE%\.docker\cli-plugins`. Konfigurasi/log kecil tetap mengikuti
-direktori profil Windows. Jangan memindahkan atau menghapus file VHDX saat aktif.
+Cadangan disk sebelum pemindahan disimpan di
+`E:\Docker\migration-backup\wsl-before-20261102`.
+Docker Desktop masih terdaftar di `C:\Program Files\Docker\Docker`.
+Salinan file aplikasi di `E:\Docker\Desktop` sudah diverifikasi, tetapi belum
+diaktifkan karena Windows menolak penggantian folder instalasi asal.
+Konfigurasi/log kecil tetap mengikuti direktori profil Windows.
+Jangan memindahkan atau menghapus file VHDX saat aktif.
+
+Instalasi lokal ini memakai **http://localhost:8081** karena port 8080 digunakan
+Apache Laragon. `.env` menetapkan `APP_PORT=8081` dan
+`APP_ORIGIN=http://localhost:8081`; contoh instalasi baru tetap memakai 8080.
+
+Paket `services/backend/app/media` dibangun kembali untuk validasi/preview video,
+render MP4/SRT, layout gaming, pelacakan wajah/pembicara, dan impor URL publik.
+`.gitignore` hanya mengabaikan `/media/` di root agar source paket ikut Git.
+Database sudah dimigrasikan, akun lokal sudah dibuat, dan model Whisper `small`
+sudah tersedia di cache. Setelah mengubah kode backend, bangun ulang image
+dengan `docker compose build api`, lalu jalankan `docker compose up -d`.
 
 Setelah restart Windows, buka Docker Desktop, lalu jalankan `docker compose up -d`
 dari repository ini. Terminal yang sudah terbuka sebelum instalasi perlu dibuka
@@ -124,8 +166,10 @@ FFmpeg dibatasi pada file hasil unduhan lokal; proses downloader tidak menerima
 API key atau kredensial database. URL dengan query token tidak ditampilkan di
 respons job/log aplikasi dan dihapus dari data job ketika proyek dihapus.
 Unduhan gagal/dibatalkan dibersihkan dan dapat dicoba lagi melalui kartu pekerjaan.
-Docker sudah menyertakan Node untuk challenge JavaScript YouTube dan EJS dari
-lockfile; tanpa Docker, sediakan Node22+ pada PATH selain FFmpeg.
+Docker menyertakan FFmpeg, Node dan EJS dari lockfile. Modul impor yang dibangun
+kembali memakai FFmpeg melalui path absolut dan menerapkan opsi input lokal
+pada merger/fixup yt-dlp. Runtime JavaScript eksternal belum diaktifkan kembali;
+video YouTube yang mewajibkan challenge tersebut masih dapat gagal diimpor.
 
 Render menggunakan video asli dan decode/re-encode. Preview CSS mendekati crop
 dan subtitle; file hasil render adalah acuan font wrapping dan timing.
@@ -215,10 +259,9 @@ Model tetap `small` multilingual dan beam 5. Hanya satu pekerjaan berat berjalan
 sekaligus untuk menjaga penggunaan VRAM. Override GPU memberi worker 4 inti CPU.
 Instalasi CPU dapat tetap memakai `compose.yml` saja.
 
-Pada host Windows ini `.env` mengaktifkan kedua file secara persisten
-dengan `COMPOSE_FILE=compose.yml;compose.gpu.yml` dan `COMPOSE_PATH_SEPARATOR=;`.
-Dengan konfigurasi tersebut, perintah `docker compose up -d` biasa tetap memakai
-worker GPU. File dan cache Docker tetap di drive G:.
+Instalasi Windows lokal saat ini memakai CPU dengan `compose.yml` saja.
+Override GPU di atas digunakan pada host dengan NVIDIA/CUDA yang tersedia
+untuk Docker. File dan cache Docker lokal berada di drive E:.
 
 ## Perintah pemeliharaan
 

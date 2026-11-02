@@ -14,4 +14,17 @@
     handle {
         reverse_proxy web:3000
     }
+    handle_errors 502 503 504 {
+        @api_request path /api/v1/*
+        handle @api_request {
+            header Content-Type application/json
+            header Cache-Control no-store
+            header Retry-After 5
+            respond "{\"code\":\"SERVICE_UNAVAILABLE\",\"message\":\"Layanan sementara belum tersedia. Tunggu beberapa detik, lalu muat ulang halaman untuk memeriksa status pekerjaan sebelum mencoba lagi.\"}" 503
+        }
+        handle {
+            header Retry-After 5
+            respond "Aplikasi sementara belum tersedia. Tunggu beberapa detik, lalu muat ulang halaman." 503
+        }
+    }
 }

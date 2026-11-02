@@ -63,3 +63,38 @@ def test_missing_key_fails_before_network():
     with pytest.raises(MediaError) as error:
         select_clips(segments(), duration_ms=120000, api_key="", base_url="https://example.test", model="test")
     assert error.value.code == "ai_not_configured"
+
+
+def test_gaming_ranks_later_boss_fight_before_early_reaction_across_batches(monkeypatch):
+    source = segments()
+    monkeypatch.setattr('app.ai.selector.chunks', lambda *args: [source[:6], source[6:]])
+    calls = []
+    def respond(request):
+        body = json.loads(request.content)
+        payload = json.loads(body['messages'][1]['content'])
+        calls.append(payload)
+        assert payload['content_profile'] == 'gaming'
+        assert 'ONLY timed transcript text' in body['messages'][0]['content']
+        assert 'boss' in body['messages'][0]['content']
+        row = {**candidate('s0', 's3'), 'moment_type': 'reaction'} if len(calls) == 1 else {**candidate('s6', 's9'), 'moment_type': 'boss_fight'}
+        return httpx.Response(200, json={'choices': [{'message': {'content': json.dumps({'clips': [row]})}}]})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        result = select_clips(source, duration_ms=120000, count=1, content_profile='gaming', api_key='test', base_url='https://example.test', model='test', client=client)
+    assert len(calls) == 2
+    assert len(result.candidates) == 1
+    assert result.candidates[0]['start_ms'] == 60000
+    assert result.candidates[0]['moment_type'] == 'boss_fight'
+
+
+@pytest.mark.parametrize('rows', [
+    [{**candidate(), 'moment_type': 'story'}],
+    [{**candidate(), 'moment_type': 'other'}],
+    [{**candidate('s0', 's0'), 'moment_type': 'boss_fight'}],
+    [],
+])
+def test_gaming_never_fills_quota_with_story_or_invalid_duration(rows):
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={'choices': [{'message': {'content': json.dumps({'clips': rows})}}]}))) as client:
+        with pytest.raises(MediaError) as exc:
+            select_clips(segments(), duration_ms=120000, content_profile='gaming', api_key='test', base_url='https://example.test', model='test', client=client)
+    assert exc.value.code == 'no_valid_candidates'
+    assert 'Aksi tanpa ucapan' in str(exc.value)
