@@ -1,5 +1,10 @@
 export interface CaptionLayout { text: string; fontSize: number; tooLong: boolean }
 
+/** Match export ordering while keeping editor indices stable during a drag. */
+export function orderedCues<T extends { start_ms: number }>(cues: T[]): T[] {
+  return [...cues].sort((first, second) => first.start_ms - second.start_ms)
+}
+
 /** Match app.media.subtitles: balanced two-line captions in the 80% safe width. */
 export function captionLayout(input: string, requestedSize: number, autoFit = true): CaptionLayout {
   const text = input.trim().replace(/\s+/gu, ' ')

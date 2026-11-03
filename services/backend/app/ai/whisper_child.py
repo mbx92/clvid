@@ -18,6 +18,7 @@ def runtime_plan(config: dict, cuda_count: int) -> dict:
     if compute == "auto":
         compute = "float16" if device == "cuda" else "int8"
     return {
+        "model": config["model"],
         "requested_device": config.get("requested_device", requested),
         "device": device, "compute_type": compute,
         "cpu_threads": int(config.get("cpu_threads", 4)),
@@ -66,6 +67,8 @@ def transcribe_with_runtime(config: dict, *, model_factory=None, batched_factory
             options = {"language": None if config["language"] == "auto" else config["language"],
                        "vad_filter": True, "word_timestamps": True, "beam_size": runtime["beam_size"],
                        "condition_on_previous_text": False}
+            if config.get("vad_parameters") is not None:
+                options["vad_parameters"] = config["vad_parameters"]
             if runtime["device"] == "cuda" and runtime["batch_size"] > 1:
                 pipeline = batched_factory(model=model)
                 segments, info = pipeline.transcribe(config["source"], batch_size=runtime["batch_size"], **options)
@@ -77,6 +80,8 @@ def transcribe_with_runtime(config: dict, *, model_factory=None, batched_factory
                     continue
                 result.append({"start_ms": max(0, round(segment.start * 1000)), "end_ms": round(segment.end * 1000),
                                "text": segment.text.strip(),
+                               "avg_logprob": getattr(segment, "avg_logprob", None),
+                               "no_speech_prob": getattr(segment, "no_speech_prob", None),
                                "words_json": [{"start_ms": round(word.start * 1000), "end_ms": round(word.end * 1000),
                                                "word": word.word, "probability": word.probability} for word in segment.words or []]})
                 report(f"segment_end_ms={round(segment.end * 1000)}")

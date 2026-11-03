@@ -12,6 +12,10 @@ credentials
 **/node_modules
 **/.nuxt
 **/.output
+**/dist
+**/.test-build
+apps/web/public/remotion
+services/remotion/public/fonts
 **/__pycache__
 **/.pytest_cache
 **/test-results

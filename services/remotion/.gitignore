@@ -1,0 +1,4 @@
+public/fonts/
+.test-build/
+node_modules/
+dist/

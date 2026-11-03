@@ -1,5 +1,129 @@
 # Progres dan bukti implementasi
 
+## Integrasi Remotion dan timeline klip — 3 November 2026
+
+- Renderer Remotion dipilih per revisi klip, dengan template subtitle Minimal,
+  Gaming Punch, dan Sinematik. Klip lama tetap memakai Standar/FFmpeg.
+- Komposisi React dipakai bersama untuk overlay preview dan ekspor. Video asli
+  tetap ditrim dan diframing oleh FFmpeg, termasuk panel gaming/pelacakan;
+  audio hasil persiapan digabung kembali tanpa enkode audio kedua.
+- Efek video mencakup transisi masuk/keluar, zoom bertimestamp, serta judul
+  intro/outro pada awal/akhir rentang klip. Timeline mengedit klip aktif,
+  subtitle, dan efek. Ini belum merangkai banyak klip/proyek menjadi satu video.
+- Pengaturan disimpan dalam JSON gaya revisi tanpa migrasi database. Versi
+  renderer menjadi bagian identitas ekspor. Proses yang dibatalkan menghentikan
+  Node/browser; hasil gagal tidak diterbitkan dan video sementara dibersihkan.
+- Browser, komposisi, font, dan lisensi dibundel saat Docker build. Render
+  menggunakan server loopback bertoken yang hanya membaca satu MP4, dengan
+  validasi ukuran manifest, path, dan output. Tidak mengirim video ke AI.
+- Preview menampilkan pesan saat bundle/font gagal dimuat. Subtitle yang
+  dinonaktifkan tidak dikirim ke komposisi, tetapi SRT tetap dipertahankan.
+- Validasi: 93 tes backend terkait, 20 tes renderer, 50 tes frontend, typecheck,
+  serta 13 tes browser lulus. Enam ekspor MP4 nyata memeriksa ketiga template,
+  batas/jeda kata, panel gaming, intro/outro tanpa subtitle, zoom/transisi,
+  durasi, dan frekuensi/level audio. Sampel lokal: `.artifacts/remotion/`.
+- Pengujian warna menemukan video SD tanpa tag yang ditafsirkan berbeda setelah
+  menjadi HD. Jalur persiapan Remotion kini mengonversi/tag matriks BT.709;
+  screenshot PNG dan ekspor BT.709 menjaga warna panel gaming. Jalur Standar
+  tetap memakai pipeline sebelumnya.
+- Uji browser memakai API dan video sintetis. Penyimpanan mengunci editor untuk
+  mencegah edit baru tertimpa respons; preview pulih setelah teks diperbaiki.
+  Cue bertumpuk memakai prioritas yang sama dengan ekspor. Bukti visual ada di
+  `.runtime/remotion-ui-qa/`. Tidak ada edit atau publikasi klip pengguna untuk QA.
+- Image backend/web sudah dipasang pada layanan lokal `http://localhost:8081`.
+  API/web sehat, worker baru menjawab ping, dan 13 tes browser diulang pada
+  versi terpasang dengan hasil lulus. Container dan dev server QA dihentikan.
+
+## Koreksi ucapan yang terbuang pada kandidat pertarungan — 3 November 2026
+
+- `no_speech_prob` adalah skor satu jendela decoder, bukan keputusan per frasa.
+  Batas tambahan 0,5 ternyata menghapus ucapan yang memiliki bukti kata baik.
+  Batas tersebut dihapus; validitas timing dan keyakinan kata tetap diperiksa.
+- Pemeriksaan audio asli dibandingkan dengan salinan yang menormalkan ucapan
+  (`highpass`, `lowpass`, `speechnorm`). Model multilingual `small` tetap dipakai;
+  audio sumber dan ekspor tidak berubah. Frasa yang beririsan tidak diduplikasi.
+  Kedua pass, hasil penyaringan, model aktual dan durasi tersimpan dalam runtime.
+- Kata leksikal berdurasi nol tidak lagi dibuang untuk membentuk kalimat terpotong;
+  segmen tersebut ditolak. Skor tanpa ucapan yang tinggi saja tidak menghapus
+  reaksi pendek dengan timing dan keyakinan yang baik.
+- Identitas job menyertakan algoritma `clip-speech-v3` dan konfigurasi ASR yang
+  dibekukan ketika diminta. Hasil kosong lama tidak dipakai untuk algoritma baru.
+  Pesan kosong menyatakan ucapan belum berhasil dikenali, bukan audio pasti hening.
+- `replace_existing` harus diminta secara eksplisit. Pembaruan membuat revisi
+  baru, memeriksa revisi aktif, dan mempertahankan subtitle lama bila hasil kosong.
+  Audit 15 kandidat menemukan perubahan pengguna hanya pada crop/gaya, tidak
+  pada teks/timing subtitle; revisi dan tampilan pengguna tetap dipertahankan.
+- Semua 15 kandidat diperiksa ulang melalui job normal: 13 mendapatkan subtitle
+  baru, termasuk seluruh 5 kandidat yang sebelumnya kosong. Dua mempertahankan
+  subtitle lama karena pengenalan ulang belum cukup baik. Tidak ada job gagal.
+- Cue otomatis dipisahkan pada jeda kata minimal 1 detik dan dibatasi 5 detik
+  pada batas kata (satu kata panjang tetap memakai timing asli). Tujuh hasil
+  dirapikan dari timestamp tersimpan, tanpa mengulang ASR atau mengubah video.
+- Verifikasi: 88 tes backend terkait lulus; pemeriksaan DB memastikan semua
+  judul/batas/crop/gaya tetap sama, cue berada dalam klip, dan timing kata pada
+  13 hasil baru selaras. API dan worker sudah menjalankan versi terbaru.
+- Preview browser live menampilkan subtitle pada kandidat aksi yang sebelumnya
+  kosong. Kandidat bos `cfed6d4d…` memiliki dua cue tetapi pengguna mematikan
+  `subtitle_style_json.enabled`; pilihan itu dipertahankan dan diverifikasi.
+
+## Pemulihan subtitle kandidat pertarungan — 3 November 2026
+
+- Kandidat visual dapat jatuh pada rentang tanpa transkrip. Rentang kosong kini
+  diperiksa lagi memakai audio klip dan Whisper lokal, dengan bahasa video,
+  deteksi ucapan lebih peka, serta penyaringan hasil rendah keyakinan.
+- Editor menyediakan **Buat subtitle dari audio** untuk kandidat lama yang
+  kosong. Pekerjaan berjalan di antrean heavy, memeriksa revisi sebelum menyimpan,
+  dan membuat transkrip/revisi baru tanpa menimpa subtitle yang sudah diedit.
+  Audio tanpa ucapan yang dikenali memberi hasil kosong beserta penjelasan.
+- Cue otomatis di batas visual menggunakan kata yang benar-benar beririsan,
+  sehingga teks dan timing kata per kata tetap cocok. Pemulihan tidak mengubah
+  retiming subtitle manual. API menolak akses akun lain dan revisi kedaluwarsa.
+- Pemeriksaan tiga klip asli dengan audio lokal memulihkan dua cue dalam satu
+  klip; dua klip lainnya tetap kosong setelah penyaringan keyakinan. Ini bukan
+  bukti bahwa seluruh audio di kedua klip tidak memiliki ucapan.
+- Validasi: 61 tes backend terkait, 44 tes web, typecheck, build, dan 4 tes
+  browser pemulihan lulus. Pemeriksaan browser live memastikan dua cue yang
+  dipulihkan tampil pada video dan tombol tersedia pada klip kosong.
+- API/web diperbarui melalui proxy sementara yang sudah diperiksa kesehatannya;
+  worker baru menangani pekerjaan berikutnya. Analisis lama menyelesaikan tugas
+  dengan warm shutdown; follow-up lokal sekali jalan memeriksa klip kosong dari
+  hasil analisis yang terlanjur memakai kode lama. Tidak ada job aktif dibatalkan.
+
+## Hook streamer, analisis frame dan subtitle bergerak — 3 November 2026
+
+- Profil gaming kini menerima streamer_joke, character_death dan funny_fail.
+  Hook wajib menunjuk segmen dan kutipan yang cocok dengan transkrip; payoff
+  harus berada setelah hook dan di dalam batas klip. Urutan memakai kelengkapan
+  payoff dan posisi hook, bukan selalu menempatkan boss fight paling atas.
+  Duplikat anchor serta observasi visual/transkrip pada momen yang sama disaring.
+- Opsi `visual_analysis` hanya tersedia untuk analisis gaming dan harus dipilih
+  pengguna. Frame dikirim sebagai gambar inline ke DeepSeek; tidak ada URL media
+  privat yang dibuka untuk umum. Maksimal 360 frame, interval minimal 5 detik,
+  batch maksimal 12 gambar dengan overlap satu frame, ukuran maksimal 960 px.
+  Timestamp berasal dari PTS FFmpeg; output provider harus mereferensikan ID
+  frame yang benar. Pengamatan tidak pasti disaring dan gambar sementara dihapus.
+- Frame dapat menghasilkan kandidat setelah transkrip tanpa ucapan. Rentang
+  visual adalah jendela awal untuk ditinjau; outcome yang diketahui tidak boleh
+  dipotong demi batas durasi. Analisis frame memakai antrean heavy, cancellation,
+  retry terbatas dan pencatatan token per attempt. Model salah/tidak mendukung
+  gambar menghasilkan error yang aman. Suara game belum dianalisis; sampling
+  bisa melewatkan kejadian cepat, sehingga ini bukan jaminan deteksi semua death.
+- Preset subtitle Sinematik/fade, Gaming impact/pop dan Komedi pop/rise beserta
+  durasi 100–500 ms tersedia. Preview memakai waktu video, termasuk seek/pause;
+  ASS menyimpan animasi ke MP4. Pembungkusan Python dan browser memakai fixture
+  yang sama. Klip lama tetap statis secara default dan SRT tetap berupa teks/waktu.
+- Validasi: 54 tes backend terkait hook, vision, API dan subtitle lulus;
+  setelah hardening batas payoff, 24 tes selector lulus. Termasuk render MP4
+  nyata dan sampling video panjang/portrait/anamorphic. 44 tes frontend,
+  typecheck, dan dua skenario Playwright kandidat/subtitle lulus. Tes UI memakai
+  mock write di browser, tidak mengubah klip pengguna atau membuat job AI nyata.
+- DeepSeek live: satu gambar sintetis berhasil dibaca (HTTP 200, 248 token),
+  dan satu transkrip sintetis menghasilkan funny_fail + character_death dengan
+  bukti/payoff valid, masing-masing 45 detik (1.390 token). Tidak ada benchmark
+  akurasi pada video game pengguna; hasil tetap memerlukan peninjauan.
+- Backend, API, dispatcher, worker dan web diperbarui setelah memastikan tidak
+  ada job aktif. Healthcheck API/web sehat. Tidak ada video yang dipublikasikan.
+
 ## Profil kandidat game — 2 November 2026
 
 - Formulir kandidat menyediakan Umum / percakapan dan Game / gameplay.

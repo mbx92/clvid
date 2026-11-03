@@ -10,7 +10,8 @@ from app.media.process import MediaError, run_process
 
 def transcribe(source: Path, directory: Path, *, model="small", device="auto", compute_type="auto",
                language="auto", cache_dir="/data/whisper", cpu_threads=4, batch_size=8, beam_size=5,
-               duration_ms: int | None = None, timeout=14400, cancelled=None, progress=None) -> dict:
+               duration_ms: int | None = None, timeout=14400, cancelled=None, progress=None,
+               vad_parameters: dict | None = None) -> dict:
     if model.endswith(".en") and language != "en":
         raise MediaError("invalid_whisper_model", "Model English-only tidak dapat digunakan untuk bahasa Indonesia atau deteksi otomatis.")
     directory.mkdir(parents=True, exist_ok=True)
@@ -21,6 +22,8 @@ def transcribe(source: Path, directory: Path, *, model="small", device="auto", c
               "model": model, "device": device, "compute_type": compute_type,
               "language": language, "cache_dir": cache_dir, "cpu_threads": cpu_threads,
               "batch_size": batch_size, "beam_size": beam_size}
+    if vad_parameters is not None:
+        config["vad_parameters"] = vad_parameters
     request.write_text(json.dumps(config), encoding="utf-8")
     result = run_process([sys.executable, "-m", "app.ai.whisper_child", str(request.resolve())],
                          timeout=timeout, cancelled=cancelled, progress=progress, duration_ms=duration_ms)

@@ -10,7 +10,7 @@ from app.domain.limits import processing_limits, can_retry_after_limit_increase
 from app.domain.models import Asset, Job, JobRequest, OutboxEvent, Project, User, utcnow
 
 ACTIVE = ("queued", "running", "cancel_requested")
-KINDS = {"import_url", "validate", "prepare_preview", "transcribe", "analyze", "track_preview", "render", "delete_assets"}
+KINDS = {"import_url", "validate", "prepare_preview", "transcribe", "analyze", "subtitle_generate", "track_preview", "render", "delete_assets"}
 
 
 class JobConflict(ValueError):

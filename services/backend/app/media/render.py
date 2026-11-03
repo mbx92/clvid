@@ -87,7 +87,25 @@ def prepare_preview(source, directory, *, duration_ms, ffmpeg_bin="ffmpeg", ffpr
 
 def render_clip(source, directory, snapshot, config, *, ffmpeg_bin="ffmpeg", ffprobe_bin="ffprobe",
                 fonts_dir=None, tracking_model_path=None, tracking_source=None, speaker_model_path=None,
-                tracking_result=None, stage=None, timeout=14400, cancelled=None, progress=None):
+                tracking_result=None, stage=None, timeout=14400, cancelled=None, progress=None,
+                remotion_node_path="node", remotion_script_path="/opt/remotion/render.mjs"):
+    options = dict(ffmpeg_bin=ffmpeg_bin, ffprobe_bin=ffprobe_bin, fonts_dir=fonts_dir,
+                   tracking_model_path=tracking_model_path, tracking_source=tracking_source,
+                   speaker_model_path=speaker_model_path, tracking_result=tracking_result,
+                   stage=stage, timeout=timeout, cancelled=cancelled, progress=progress)
+    renderer = config.get("renderer", "ffmpeg")
+    if renderer == "remotion":
+        from .remotion import render_remotion
+        return render_remotion(source, directory, snapshot, config, prepare=_render_ffmpeg,
+                               node_path=remotion_node_path, script_path=remotion_script_path, **options)
+    if renderer != "ffmpeg":
+        raise MediaError("invalid_renderer", "Mesin render yang dipilih tidak tersedia.")
+    return _render_ffmpeg(source, directory, snapshot, config, **options)
+
+
+def _render_ffmpeg(source, directory, snapshot, config, *, ffmpeg_bin="ffmpeg", ffprobe_bin="ffprobe",
+                   fonts_dir=None, tracking_model_path=None, tracking_source=None, speaker_model_path=None,
+                   tracking_result=None, stage=None, timeout=14400, cancelled=None, progress=None):
     directory = Path(directory)
     start, end = snapshot["start_ms"], snapshot["end_ms"]
     duration = end-start
@@ -102,6 +120,11 @@ def render_clip(source, directory, snapshot, config, *, ffmpeg_bin="ffmpeg", ffp
     srt = directory/"captions.srt"
     srt.write_text(to_srt(cues, duration), encoding="utf-8")
     final = "fps=30,format=yuv420p"
+    if config.get("renderer") == "remotion":
+        # Untagged SD YUV promoted to portrait HD can be interpreted as BT.709
+        # by the browser decoder. Convert the matrix and tag it explicitly so
+        # the browser and FFmpeg agree, instead of changing saturated colors.
+        final = "fps=30,scale=in_color_matrix=auto:out_color_matrix=bt709,format=yuv420p,setparams=colorspace=bt709"
     if style.get("enabled", True) and cues:
         ass = directory/"captions.ass"
         ass.write_text(to_ass(snapshot.get("subtitle_events", cues), duration, style, width, height), encoding="utf-8")

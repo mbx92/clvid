@@ -12,14 +12,92 @@ akun bawaan, data demo pada aplikasi, atau fallback AI palsu.
 ## Kandidat konten game
 
 Pada **Buat kandidat → Jenis konten**, pilih **Game / gameplay**. Profil ini
-memprioritaskan boss fight, clutch/comeback, combat, reaksi terkait aksi dan
-penemuan gameplay. Kandidat story-only disaring; prioritas diterapkan pada
-hasil dari semua bagian transkrip sebelum batas jumlah kandidat digunakan.
+memilih momen utuh: ucapan lucu streamer, punchline, karakter mati, gagal lucu,
+clutch/comeback dan pertarungan bos. Hook harus memiliki kutipan yang cocok
+dengan segmen transkrip; payoff yang jelas dan hook yang cepat lebih diutamakan
+daripada label jenis kejadian. Komedi saat menu/story tetap bisa menjadi hook.
+Kandidat cerita biasa disaring dan hook duplikat digabung.
 Durasi mengikuti minimum/maksimum yang dipilih dan hasil boleh lebih sedikit.
 
-Analisis ini masih berbasis transkrip, bukan pembacaan frame atau suara game.
-Aksi tanpa ucapan tidak dapat dipastikan otomatis. Tinjau adegan sumber atau
-buat klip manual untuk momen tersebut. Profil Umum / percakapan tetap tersedia.
+Aktifkan **Analisis frame video dengan AI** untuk mengirim sampel gambar ke
+DeepSeek melalui koneksi API yang sudah dikonfigurasi. Dibutuhkan model dengan
+dukungan gambar (misalnya `deepseek-flash`). Maksimal 360 frame per proses,
+berjarak sekitar 5 detik atau lebih untuk video panjang, dibaca dalam kelompok
+12 gambar. Waktu frame berasal dari video; model hanya mengembalikan ID frame
+sebagai bukti. Pemeriksaan ini juga dapat menghasilkan kandidat dari video
+tanpa ucapan. Rentang klip visual dibuat otomatis di sekitar kejadian dan perlu
+ditinjau; sampling dapat melewatkan kejadian singkat. Suara game belum dianalisis.
+Pengiriman frame memakai kuota AI tambahan, dan gambar sementara dibersihkan
+setelah proses. Profil Umum / percakapan tetap tersedia.
+
+Kandidat visual yang belum memiliki subtitle diperiksa lagi melalui audio
+rentang klip dengan Whisper lokal. Pemeriksaan membandingkan audio asli dan
+salinan dengan normalisasi ucapan untuk membantu suara streamer yang tertutup
+efek pertarungan. Hasil bertimestamp valid digabung tanpa menduplikasi ucapan;
+audio video yang ditonton/diekspor tetap asli. Untuk kandidat lama yang kosong, buka editor
+lalu pilih **Buat subtitle dari audio**. Simpan perubahan terlebih dahulu;
+hasil disimpan sebagai revisi baru dan tidak menimpa edit yang lebih baru.
+Bahasa otomatis mengikuti transkrip video bila tersedia. Musik/efek pertarungan
+tanpa ucapan yang dikenali dapat tetap menghasilkan subtitle kosong; deskripsi
+aksi dari frame tidak dijadikan dialog. Hasil pengenalan tetap perlu ditinjau.
+`WHISPER_SUBTITLE_MODEL` dapat mengganti model khusus pemeriksaan klip; jika
+kosong, sistem memakai `WHISPER_MODEL`. Versi algoritma dan konfigurasi model
+menjadi bagian identitas pekerjaan, sehingga hasil kosong dari konfigurasi lama
+tidak menghalangi percobaan dengan konfigurasi baru.
+
+## Efek subtitle
+
+Di editor klip, buka **Tampilan → Gaya subtitle**. Preset **Sinematik** memakai
+fade halus, **Gaming impact** memakai teks tebal dengan pop masuk, dan
+**Komedi pop** memakai teks pink dengan gerak geser. Pada **Warna & efek**,
+ubah animasi serta durasinya (100–500 ms), warna, outline, bayangan dan kapital.
+Mode kalimat atau kata per kata tetap dapat dipilih; kata per kata memerlukan
+timestamp ucapan yang tersedia. Simpan revisi lalu ekspor MP4 untuk menerapkan
+efek. File SRT tetap berisi teks/waktu tanpa animasi.
+
+### Remotion
+
+Pada **Tampilan → Gaya subtitle → Renderer**, pilih **Remotion**, lalu template
+**Minimal**, **Gaming Punch**, atau **Sinematik**. Minimal mengikuti pengaturan
+animasi dasar; Gaming Punch memakai gerak masuk spring; Sinematik memakai
+fade dan gerak halus. Warna, font, outline, posisi, serta mode kalimat/kata tetap
+mengikuti gaya subtitle. Simpan perubahan sebelum mengekspor.
+
+Preview dan ekspor memakai komposisi React yang sama di `services/remotion`.
+FFmpeg menyiapkan framing, trim, dan audio; Remotion merender animasi subtitle,
+judul pembuka/penutup, transisi, dan zoom di atas video tersebut. Audio asli lalu
+digabung kembali tanpa enkode ulang.
+Pilihan **Standar** tetap memakai FFmpeg dan menjadi default klip lama.
+Efek intro/outro memakai awal/akhir rentang klip yang ada, sehingga durasi dan
+audio tidak bertambah. Zoom memakai waktu relatif terhadap klip, dengan pusat
+dan kekuatan yang dapat diatur. Transisi masuk/keluar memengaruhi gambar video.
+Atur semuanya melalui **Tampilan → Efek video**. Buka tab **Timeline** untuk
+menggeser atau mengubah durasi subtitle/zoom, menyunting teks, dan mengubah
+batas video. Tombol panah menggeser blok 0,1 detik (Shift: 1 detik); kolom angka
+tersedia untuk waktu yang presisi. Setelah trim, zoom tetap mengikuti momen
+sumber yang sama; bagian di luar rentang baru dilepas.
+Timeline digunakan untuk mengatur klip yang sedang diedit, subtitle, dan efek;
+penggabungan beberapa klip/proyek menjadi satu video belum tersedia.
+Ekspor Remotion memerlukan proses render tambahan.
+
+Docker build menyertakan bundle preview, komposisi, font, dan Chrome Headless
+Shell. Tidak ada unduhan browser atau panggilan AI ketika ekspor Remotion berjalan.
+Untuk pengembangan native, jalankan dari root repository:
+
+```sh
+npm --prefix services/remotion ci
+npm --prefix services/remotion run build
+npm --prefix services/remotion run browser:install
+```
+
+Salin `services/remotion/dist/player.js` ke `apps/web/public/remotion/player.js`
+sebelum menjalankan Nuxt. Arahkan `REMOTION_SCRIPT_PATH` ke path absolut
+`services/remotion/render.mjs`; `REMOTION_NODE_PATH` dapat diatur jika Node tidak
+ada pada PATH. Set `REMOTION_BROWSER_EXECUTABLE` ke executable Chrome Headless
+Shell hasil instalasi di `services/remotion/node_modules/.remotion`.
+Ulangi build dan salin bundle serta `dist/THIRD-PARTY-NOTICES.txt` ketika komposisi berubah.
+Remotion memiliki ketentuan lisensi tersendiri; lihat
+[lisensi resmi Remotion](https://www.remotion.pro/license) untuk penggunaan tim.
 
 ## Thumbnail dari video
 

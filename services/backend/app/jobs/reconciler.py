@@ -47,7 +47,7 @@ def reconcile_once() -> dict:
             else:
                 job.status, job.finished_at = "failed", now
                 job.error_code, job.error_message = "worker_lost", "Worker berhenti sebelum pekerjaan selesai. Batas percobaan tercapai; periksa konfigurasi server."
-                if job.kind not in ("render", "track_preview") and project.lifecycle_state == "active":
+                if job.kind not in ("render", "track_preview", "subtitle_generate") and project.lifecycle_state == "active":
                     project.status, project.error_message = ("ready" if job.kind == "analyze" else "failed"), job.error_message
             export = db.scalar(select(Export).where(Export.job_id == job.id))
             if export:

@@ -15,6 +15,7 @@ node_modules/
 .nuxt/
 .output/
 dist/
+apps/web/public/remotion/
 *.log
 *.db
 *.sqlite*

@@ -1,6 +1,6 @@
 import html
 import re
-import textwrap
+import math
 
 from .process import MediaError
 
@@ -39,16 +39,75 @@ def escape_ass(text):
 
 
 def caption_layout(text, font_size=52, auto_fit=True):
+    """Keep wrapping/size identical to web utils/subtitles.ts (Unicode points)."""
     text = " ".join(text.split())
-    for size in range(font_size, 23, -1) if auto_fit else [font_size]:
-        # Conservative Noto Sans average glyph width; explicit wrapping avoids
-        # libass changing the line count between preview and export.
-        width = max(1, int(900 / (size * .57)))
-        lines = textwrap.wrap(text, width=width, break_long_words=False, break_on_hyphens=False)
-        if len(lines) <= (2 if auto_fit else 4) and all(len(line) <= width for line in lines):
-            return "\n".join(lines), size
+    if not auto_fit:
+        target = max(1, math.floor(864 / (font_size * .62)))
+        lines, line = [], ""
+        for word in text.split():
+            if len(word) <= target:
+                if line and len(line) + 1 + len(word) > target:
+                    lines.append(line)
+                    line = ""
+                line += (" " if line else "") + word
+            else:
+                rest = word
+                if line:
+                    line += " "
+                while rest:
+                    space = target - len(line)
+                    if space <= 0:
+                        lines.append(line.rstrip())
+                        line = ""
+                        continue
+                    line += rest[:space]
+                    rest = rest[space:]
+                    if rest:
+                        lines.append(line.rstrip())
+                        line = ""
+        if line:
+            lines.append(line)
+        if len(lines) <= 4:
+            return "\n".join(lines), font_size
+    else:
+        target = max(12, math.floor(864 / (font_size * .55)))
+        lines = [text]
+        if len(text) > target:
+            middle = len(text) / 2
+            spaces = [i for i, char in enumerate(text) if char == " "]
+            split = min(spaces, key=lambda i: abs(i-middle)) if spaces else math.ceil(middle)
+            lines = [text[:split].strip(), text[split:].strip()]
+        longest = max(1, *(len(line) for line in lines))
+        fitted = min(font_size, math.floor(864 / (longest * .62) + .5))
+        if fitted >= 24:
+            return "\n".join(lines), fitted
     raise MediaError("subtitle_too_long", "Subtitle terlalu panjang untuk dua baris." if auto_fit
                      else "Subtitle terlalu panjang untuk empat baris; pisahkan cue atau kecilkan ukuran teks.")
+
+
+def animation_tags(style, duration_ms, width, height):
+    """ASS linear effects matching the web's video-time captionMotion helper."""
+    effect = style.get("animation", "none")
+    if effect == "none":
+        return ""
+    if effect not in ("fade", "pop", "rise"):
+        raise MediaError("invalid_subtitle_style", "Animasi subtitle tidak valid.")
+    requested = style.get("animation_ms", 180)
+    if not isinstance(requested, int) or not 100 <= requested <= 500:
+        raise MediaError("invalid_subtitle_style", "Durasi animasi subtitle tidak valid.")
+    enter = max(1, min(requested, duration_ms // 3))
+    exit_ms = max(1, min(enter, 150))
+    fade_in = min(enter, 60) if effect == "pop" else enter
+    tags = f"\\fad({fade_in},{exit_ms})"
+    if effect == "pop":
+        tags += f"\\fscx85\\fscy85\\t(0,{enter},\\fscx100\\fscy100)"
+    elif effect == "rise":
+        top = style.get("position") == "top"
+        margin = round(height * style.get("safe_margin", .15))
+        y = margin if top else height - margin
+        start = y + (-1 if top else 1) * 24 * width / 1080
+        tags += f"\\move({width/2:g},{start:g},{width/2:g},{y:g},0,{enter})"
+    return tags
 
 
 def validate_subtitle_layout(cues, style):
@@ -81,20 +140,34 @@ def to_ass(cues, duration_ms, style, width=1080, height=1920):
     for cue in local_cues(cues, 0, duration_ms):
         text = cue["text"].upper() if style.get("uppercase") else cue["text"]
         text, size = caption_layout(text, style.get("font_size", 52), style.get("auto_fit", True))
-        rows.append(f"Dialogue: 0,{timestamp(cue['start_ms'], True)},{timestamp(cue['end_ms'], True)},Default,,0,0,0,,{{\\fs{round(size*scale)}}}{escape_ass(text)}")
+        motion = animation_tags(style, cue['end_ms']-cue['start_ms'], width, height)
+        rows.append(f"Dialogue: 0,{timestamp(cue['start_ms'], True)},{timestamp(cue['end_ms'], True)},Default,,0,0,0,,{{\\fs{round(size*scale)}{motion}}}{escape_ass(text)}")
     return header + "\n".join(rows) + "\n"
 
 
 def transcript_cues(segments, start_ms, end_ms):
     output = []
     for seg in segments:
+        if seg["end_ms"] <= start_ms or seg["start_ms"] >= end_ms:
+            continue
         words = seg.get("words_json")
-        if not words or len(seg["text"]) <= 85:
+        timed_words = isinstance(words, list) and words and all(
+            isinstance(word, dict) and isinstance(word.get("word"), str)
+            and type(word.get("start_ms")) is int and type(word.get("end_ms")) is int
+            and word["end_ms"] > word["start_ms"] for word in words)
+        if not timed_words:
             output.append(seg)
             continue
+        # Visual candidates can start/end inside a transcript segment. Rebuild
+        # automatic captions from audible words so text and word timing agree.
+        # This also prevents short sentences from spanning long silent gaps.
+        # Manual captions use retime_cues and keep the user's edited text.
+        words = [word for word in words if word["end_ms"] > start_ms and word["start_ms"] < end_ms]
         group = []
         for word in words:
-            if group and (len("".join(w["word"] for w in group)) + len(word["word"]) > 80):
+            if group and (word["start_ms"] - group[-1]["end_ms"] >= 1000 or
+                          word["end_ms"] - group[0]["start_ms"] > 5000 or
+                          len("".join(w["word"] for w in group)) + len(word["word"]) > 80):
                 output.append(dict(start_ms=group[0]["start_ms"], end_ms=group[-1]["end_ms"], text="".join(w["word"] for w in group).strip()))
                 group = []
             group.append(word)

@@ -37,6 +37,7 @@ class SourceUrlInput(StrictModel):
 class ProcessInput(StrictModel):
     language: Literal["auto", "id", "en"] = "auto"
     content_profile: Literal["general", "gaming"] = "general"
+    visual_analysis: bool = False
     count: int = Field(default=5, ge=1, le=20)
     min_duration_ms: int = Field(default=30000, ge=5000, le=MAX_CLIP_MS)
     max_duration_ms: int = Field(default=60000, ge=5000, le=MAX_CLIP_MS)
@@ -45,6 +46,8 @@ class ProcessInput(StrictModel):
 
     @model_validator(mode="after")
     def duration_order(self):
+        if self.visual_analysis and (self.content_profile != "gaming" or not self.analyze):
+            raise ValueError("Analisis frame hanya tersedia saat mencari kandidat Game / gameplay.")
         if self.min_duration_ms > self.max_duration_ms:
             raise ValueError("Durasi minimum harus lebih kecil dari maksimum.")
         return self
@@ -99,9 +102,51 @@ class Crop(StrictModel):
         return result
 
 
+class RemotionTitle(StrictModel):
+    enabled: bool = False
+    text: str = Field(default="", max_length=80)
+    duration_ms: int = Field(default=1200, ge=300, le=5000)
+
+    @model_validator(mode="after")
+    def require_enabled_text(self):
+        if self.enabled and not self.text.strip():
+            raise ValueError("Isi teks intro atau outro yang diaktifkan.")
+        if any(ord(character) < 32 and character not in "\t\n\r" for character in self.text):
+            raise ValueError("Teks intro atau outro mengandung karakter yang tidak didukung.")
+        return self
+
+
+class RemotionZoom(StrictModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    scale: float = Field(default=1.2, ge=1, le=2, allow_inf_nan=False)
+    x: float = Field(default=.5, ge=0, le=1, allow_inf_nan=False)
+    y: float = Field(default=.5, ge=0, le=1, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def time_order(self):
+        if self.end_ms <= self.start_ms:
+            raise ValueError("Waktu akhir zoom harus setelah awal.")
+        return self
+
+
+class RemotionEffects(StrictModel):
+    transition_in: Literal["none", "fade", "slide"] = "none"
+    transition_out: Literal["none", "fade", "slide"] = "none"
+    transition_ms: int = Field(default=300, ge=100, le=1000)
+    intro: RemotionTitle = Field(default_factory=RemotionTitle)
+    outro: RemotionTitle = Field(default_factory=RemotionTitle)
+    zooms: list[RemotionZoom] = Field(default_factory=list, max_length=20)
+
+
 class SubtitleStyle(StrictModel):
     enabled: bool = True
+    renderer: Literal["ffmpeg", "remotion"] = "ffmpeg"
+    remotion_template: Literal["minimal", "gaming", "cinematic"] = "gaming"
+    remotion_effects: RemotionEffects = Field(default_factory=RemotionEffects)
     display_mode: Literal["sentence", "words"] = "sentence"
+    animation: Literal["none", "fade", "pop", "rise"] = "none"
+    animation_ms: int = Field(default=180, ge=100, le=500)
     font_size: int = Field(default=52, ge=24, le=100)
     position: Literal["top", "bottom"] = "bottom"
     background: bool = True
@@ -158,6 +203,12 @@ class ClipPatch(StrictModel):
     crop_json: Crop | None = None
     subtitle_style_json: SubtitleStyle | None = None
     cues: list[Cue] | None = Field(default=None, max_length=2000)
+
+
+class SubtitleGenerateInput(StrictModel):
+    expected_revision: int = Field(ge=1)
+    language: Literal["auto", "id", "en"] = "auto"
+    replace_existing: bool = False
 
 
 class ExportInput(StrictModel):

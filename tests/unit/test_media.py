@@ -86,3 +86,92 @@ def test_auto_cue_split_uses_observed_word_timestamps():
     assert " ".join(cue["text"] for cue in cues) == original["text"]
     assert all(cue["start_ms"] in {word["start_ms"] for word in words} and cue["end_ms"] in {word["end_ms"] for word in words} for cue in cues)
     assert transcript_cues([{**original, "words_json": None}], 0, 9000) == [{key: original[key] for key in ("start_ms", "end_ms", "text")}]
+
+
+def test_short_automatic_sentence_does_not_bridge_a_long_silent_gap():
+    from app.media.word_captions import align_words
+    words = [{"word": " Oh", "start_ms": 22880, "end_ms": 23680},
+             {"word": " dikit", "start_ms": 41840, "end_ms": 42080},
+             {"word": " lagi", "start_ms": 42080, "end_ms": 42260}]
+    segment = {"start_ms": 22880, "end_ms": 42260, "text": "Oh dikit lagi", "words_json": words}
+    cues = transcript_cues([segment], 0, 45000)
+    assert cues == [{"start_ms": 22880, "end_ms": 23680, "text": "Oh"},
+                    {"start_ms": 41840, "end_ms": 42260, "text": "dikit lagi"}]
+    assert not any(cue["start_ms"] <= 30000 < cue["end_ms"] for cue in cues)
+    events, missing = align_words(cues, words, 0)
+    assert missing == 0 and len(events) == 3
+    assert " ".join(event["text"] for event in events) == segment["text"]
+
+
+@pytest.mark.parametrize("gap,groups", [(999, 1), (1000, 2)])
+def test_automatic_sentence_splits_at_one_second_word_gap(gap, groups):
+    words = [{"word": " Awas", "start_ms": 100, "end_ms": 500},
+             {"word": " boss", "start_ms": 500 + gap, "end_ms": 900 + gap}]
+    segment = {"start_ms": 0, "end_ms": 3000, "text": "Awas boss", "words_json": words}
+    cues = transcript_cues([segment], 0, 3000)
+    assert len(cues) == groups
+    assert cues[0]["start_ms"] == 100 and cues[-1]["end_ms"] == 900 + gap
+
+
+def test_short_contiguous_sentence_is_split_into_at_most_five_second_cues():
+    from app.media.word_captions import align_words
+    words = [{"word": f" k{i}", "start_ms": i * 800, "end_ms": (i + 1) * 800} for i in range(14)]
+    segment = {"start_ms": 0, "end_ms": 11200, "text": "".join(w["word"] for w in words).strip(), "words_json": words}
+    assert len(segment["text"]) < 85
+    cues = transcript_cues([segment], 0, 11200)
+    assert len(cues) == 3
+    assert all(0 < cue["end_ms"] - cue["start_ms"] <= 5000 for cue in cues)
+    assert " ".join(cue["text"] for cue in cues) == segment["text"]
+    events, missing = align_words(cues, words, 0)
+    assert missing == 0 and len(events) == len(words)
+
+
+def test_elongated_single_word_keeps_observed_duration_without_joining_following_speech():
+    words = [{"word": " Nooo!", "start_ms": 0, "end_ms": 6000},
+             {"word": " Awas", "start_ms": 6100, "end_ms": 6500}]
+    segment = {"start_ms": 0, "end_ms": 6500, "text": "Nooo! Awas", "words_json": words}
+    assert transcript_cues([segment], 0, 6500) == [
+        {"start_ms": 0, "end_ms": 6000, "text": "Nooo!"},
+        {"start_ms": 6100, "end_ms": 6500, "text": "Awas"}]
+
+
+@pytest.mark.parametrize("start,end,expected", [
+    (1000, 3000, [{"start_ms": 0, "end_ms": 1900, "text": "dunia seru!"}]),
+    (0, 1000, [{"start_ms": 100, "end_ms": 800, "text": "Halo"}]),
+    (1200, 1800, [{"start_ms": 0, "end_ms": 600, "text": "dunia"}]),
+    (800, 1000, []),  # A segment overlaps, but this window contains only silence.
+])
+def test_auto_cues_at_visual_boundaries_match_overlapping_words(start, end, expected):
+    from app.media.word_captions import align_words
+    words = [{"word": " Halo", "start_ms": 100, "end_ms": 800},
+             {"word": " dunia", "start_ms": 1000, "end_ms": 2000},
+             {"word": " seru!", "start_ms": 2200, "end_ms": 2900}]
+    segment = {"start_ms": 0, "end_ms": 3000, "text": "Halo dunia seru!", "words_json": words}
+    cues = transcript_cues([segment], start, end)
+    assert cues == expected
+    events, missing = align_words(cues, words, start)
+    assert missing == 0
+    assert bool(events) == bool(expected)
+    assert all(0 <= cue["start_ms"] < cue["end_ms"] <= end-start for cue in events)
+    assert segment["text"] == "Halo dunia seru!" and len(segment["words_json"]) == 3
+
+
+def test_trimmed_long_auto_cues_keep_only_overlapping_words_and_valid_timing():
+    from app.media.word_captions import align_words
+    words = [{"word": f" kata{i}", "start_ms": i*300, "end_ms": i*300+250} for i in range(40)]
+    segment = {"start_ms": 0, "end_ms": 12000, "text": "".join(w["word"] for w in words).strip(), "words_json": words}
+    cues = transcript_cues([segment], 1300, 10700)
+    expected_words = [w for w in words if w["end_ms"] > 1300 and w["start_ms"] < 10700]
+    assert len(cues) > 1
+    assert " ".join(cue["text"] for cue in cues) == "".join(w["word"] for w in expected_words).strip()
+    events, missing = align_words(cues, words, 1300)
+    assert missing == 0 and len(events) == len(expected_words)
+    assert all(0 <= cue["start_ms"] < cue["end_ms"] <= 9400 for cue in events)
+
+
+@pytest.mark.parametrize("words", [None, [], [{"word": " Halo"}],
+    [{"word": " Halo", "start_ms": 0, "end_ms": 0}]])
+def test_auto_cues_without_valid_word_timing_preserve_transcript_text(words):
+    segment = {"start_ms": 0, "end_ms": 2000, "text": "Halo dunia", "words_json": words}
+    assert transcript_cues([segment], 1000, 2000) == [
+        {"start_ms": 0, "end_ms": 1000, "text": "Halo dunia"}]

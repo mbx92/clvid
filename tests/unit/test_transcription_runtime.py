@@ -87,6 +87,23 @@ def test_explicit_cuda_does_not_silently_run_cpu():
                                 cuda_device_count=lambda: 0, report=lambda _: None)
 
 
+def test_clip_vad_options_and_quality_evidence_survive_child_output():
+    observed = []
+    class Model:
+        def __init__(self, *a, **kw): pass
+        def transcribe(self, source, **kwargs):
+            observed.append(kwargs)
+            item = segment()
+            item.avg_logprob, item.no_speech_prob = -.25, .1
+            return iter([item]), INFO
+    vad = {"threshold": .35, "min_silence_duration_ms": 300, "speech_pad_ms": 200}
+    result = transcribe_with_runtime(config(device="cpu", vad_parameters=vad), model_factory=Model,
+                                     batched_factory=object, cuda_device_count=lambda: 0, report=lambda _: None)
+    assert observed[0]["vad_filter"] is True and observed[0]["vad_parameters"] == vad
+    assert result["segments"][0]["avg_logprob"] == -.25
+    assert result["segments"][0]["no_speech_prob"] == .1
+
+
 def test_native_cuda_abort_retries_cpu_once_and_preserves_cancel_boundary(tmp_path, monkeypatch):
     calls = []
     def child(args, **kwargs):

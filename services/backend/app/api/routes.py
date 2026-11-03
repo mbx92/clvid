@@ -5,14 +5,16 @@ from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.requests import ClientDisconnect
 
 from app.api.auth import current_user
 from app.api.errors import AppError
-from app.api.schemas import ClipInput, ClipPatch, ExportInput, ProcessInput, ProjectInput, SourceUrlInput, TrackingPreviewInput, ProcessingSettingsInput
+from app.api.schemas import ClipInput, ClipPatch, ExportInput, ProcessInput, ProjectInput, SourceUrlInput, TrackingPreviewInput, ProcessingSettingsInput, SubtitleGenerateInput, RemotionEffects
 from app.api.serializers import ACTIVE, asset_data, clip_data, cue_data, export_data, job_data, project_data
+from app.ai.subtitle_recovery_config import recovery_signature
 from app.config import get_settings
 from app.db import get_db
 from app.domain.limits import processing_limits, effective_settings, can_retry_after_limit_increase, MAX_CLIP_MS, MAX_SOURCE_SECONDS, MAX_SOURCE_BYTES
@@ -28,6 +30,18 @@ from app.jobs.tracking_cache import analysis_metadata, make_tracking_spec, ready
 from app.storage.local import LocalStorage
 
 router = APIRouter(tags=["workspace"])
+
+
+def validate_video_effects(style: dict, duration_ms: int):
+    # Effects belong to the saved clip, independently of caption visibility.
+    # Revalidate persisted JSON for exports as well as incoming editor drafts.
+    try:
+        effects = RemotionEffects.model_validate(style.get("remotion_effects", {}))
+    except ValidationError as exc:
+        raise AppError(422, "INVALID_REMOTION_EFFECTS", "Periksa pengaturan efek Remotion: teks intro/outro aktif wajib diisi dan rentang zoom harus valid.") from exc
+    for index, zoom in enumerate(effects.zooms):
+        if zoom.end_ms > duration_ms:
+            raise AppError(422, "REMOTION_EFFECT_BOUNDS", f"Zoom {index + 1} melewati akhir klip. Sesuaikan waktunya setelah mengubah batas klip.")
 
 
 def own_project(db, user, project_id, lock=False, allow_deleting=False):
@@ -386,6 +400,7 @@ def create_clip(project_id: str, body: ClipInput, user: User = Depends(current_u
     project = own_project(db, user, project_id, lock=True)
     source = source_for_edit(db, project)
     validate_bounds(body.start_ms, body.end_ms, source.meta_json["duration_ms"], processing_limits(db, user.id)["max_clip_ms"])
+    validate_video_effects(body.subtitle_style_json.model_dump(), body.end_ms - body.start_ms)
     transcript = db.get(Transcript, body.transcript_id) if body.transcript_id else db.scalar(select(Transcript).where(Transcript.project_id == project.id).order_by(Transcript.version.desc()).limit(1))
     if body.transcript_id and (not transcript or transcript.project_id != project.id):
         raise AppError(404, "TRANSCRIPT_NOT_FOUND", "Transkrip tidak ditemukan.")
@@ -424,11 +439,13 @@ def update_clip(clip_id: str, body: ClipPatch, user: User = Depends(current_user
     start = body.start_ms if body.start_ms is not None else old.start_ms
     end = body.end_ms if body.end_ms is not None else old.end_ms
     validate_bounds(start, end, source.meta_json["duration_ms"], max(processing_limits(db, user.id)["max_clip_ms"], old.end_ms - old.start_ms))
+    subtitle_style = body.subtitle_style_json.model_dump() if body.subtitle_style_json else old.subtitle_style_json
+    validate_video_effects(subtitle_style, end - start)
     old_cues = [cue_data(c) for c in db.scalars(select(SubtitleCue).where(SubtitleCue.clip_revision_id == old.id).order_by(SubtitleCue.start_ms))]
     cues = [c.model_dump() for c in body.cues] if body.cues is not None else remap_cues(old_cues, old.start_ms, start, end)
     validate_cues(cues, end - start)
     revision = ClipRevision(clip_id=clip.id, revision=old.revision + 1, transcript_id=old.transcript_id, start_ms=start, end_ms=end, title=body.title if body.title is not None else old.title, reason=old.reason, topic=old.topic,
-                            crop_json=body.crop_json.model_dump() if body.crop_json else old.crop_json, subtitle_style_json=body.subtitle_style_json.model_dump() if body.subtitle_style_json else old.subtitle_style_json)
+                            crop_json=body.crop_json.model_dump() if body.crop_json else old.crop_json, subtitle_style_json=subtitle_style)
     db.add(revision)
     db.flush()
     db.add_all([SubtitleCue(clip_revision_id=revision.id, **cue) for cue in cues])
@@ -445,6 +462,26 @@ def clip_subtitle_words(clip_id: str, start_ms: int = Query(ge=0), end_ms: int =
     source = source_for_edit(db, project)
     validate_bounds(start_ms, end_ms, source.meta_json['duration_ms'], max(processing_limits(db, user.id)['max_clip_ms'], revision.end_ms - revision.start_ms))
     return {'source_words': source_words(db, revision, start_ms, end_ms)}
+
+
+@router.post("/clips/{clip_id}/subtitles/generate", status_code=202)
+def generate_clip_subtitles(clip_id: str, body: SubtitleGenerateInput, idempotency_key: str | None = Header(None), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    clip, project = own_clip(db, user, clip_id, lock=True)
+    revision = db.get(ClipRevision, clip.active_revision_id)
+    if revision.revision != body.expected_revision:
+        raise AppError(409, "REVISION_CONFLICT", "Klip sudah diubah di tab lain. Muat revisi terbaru sebelum membuat subtitle.")
+    if not body.replace_existing and db.scalar(select(SubtitleCue.id).where(SubtitleCue.clip_revision_id == revision.id).limit(1)):
+        raise AppError(409, "SUBTITLES_EXIST", "Klip sudah memiliki subtitle. Subtitle yang telah diedit tidak akan ditimpa.")
+    source = source_for_edit(db, project)
+    validate_bounds(revision.start_ms, revision.end_ms, source.meta_json["duration_ms"], max(processing_limits(db, user.id)["max_clip_ms"], revision.end_ms - revision.start_ms))
+    latest = db.scalar(select(Transcript).where(Transcript.project_id == project.id).order_by(Transcript.version.desc()).limit(1))
+    params = {"clip_id": clip.id, "clip_revision_id": revision.id, "source_asset_id": source.id,
+              "language": body.language, "base_transcript_id": latest.id if latest else None,
+              "replace_existing": body.replace_existing,
+              "recovery_signature": recovery_signature(get_settings())}
+    job = queue_job(db, project, "subtitle_generate", params, idempotency_key)
+    db.commit()
+    return job_data(job)
 
 
 @router.post("/clips/{clip_id}/tracking-preview", status_code=202)
@@ -466,6 +503,7 @@ def create_export(clip_id: str, body: ExportInput, idempotency_key: str | None =
     revision = db.scalar(select(ClipRevision).where(ClipRevision.clip_id == clip.id, ClipRevision.revision == body.revision))
     if not revision:
         raise AppError(404, "REVISION_NOT_FOUND", "Revisi tersimpan tidak ditemukan.")
+    validate_video_effects(revision.subtitle_style_json, revision.end_ms - revision.start_ms)
     cues = [cue_data(cue) for cue in db.scalars(select(SubtitleCue).where(SubtitleCue.clip_revision_id == revision.id))]
     try:
         validate_subtitle_layout(subtitle_events(db, revision, cues), revision.subtitle_style_json)
@@ -473,6 +511,11 @@ def create_export(clip_id: str, body: ExportInput, idempotency_key: str | None =
         raise AppError(422, exc.code.upper(), exc.message) from exc
     export_id = new_id()
     config = {"resolution": body.resolution, "width": body.resolution, "height": 1920 if body.resolution == 1080 else 1280, "fps": 30, "pipeline_version": get_settings().pipeline_version}
+    config["renderer"] = revision.subtitle_style_json.get("renderer", "ffmpeg")
+    if config["renderer"] == "remotion":
+        from app.media.remotion import REMOTION_RENDERER_VERSION
+        config.update(renderer_version=REMOTION_RENDERER_VERSION,
+                      remotion_template=revision.subtitle_style_json.get("remotion_template", "gaming"))
     params = {"export_id": export_id, "clip_revision_id": revision.id, "source_asset_id": project.source_asset_id, "config": config}
     if revision.crop_json.get("mode", "fill") == "fill" and revision.crop_json.get("tracking") in ("face", "speaker"):
         params["tracking_signature"] = analysis_metadata(revision.crop_json["tracking"])["algorithm_signature"]

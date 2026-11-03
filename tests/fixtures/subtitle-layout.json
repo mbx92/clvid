@@ -1,0 +1,7 @@
+[
+  {"text":"Subtitle koreksi — hasil ekspor nyata.","size":52,"auto":true,"wrapped":"Subtitle koreksi —\nhasil ekspor nyata.","effective":52},
+  {"text":"abcdefghijklm abcdefghijklmnopq","size":100,"auto":false,"wrapped":"abcdefghijklm\nabcdefghijklm\nnopq","effective":100},
+  {"text":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀","size":100,"auto":true,"wrapped":"😀😀😀😀😀😀😀😀😀😀\n😀😀😀😀😀😀😀😀😀😀","effective":100},
+  {"text":"Singkat","size":44,"auto":true,"wrapped":"Singkat","effective":44},
+  {"text":"satu   dua\n tiga","size":52,"auto":true,"wrapped":"satu dua tiga","effective":52}
+]

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     login_max_attempts: int = 8
     login_window_seconds: int = 900
     whisper_model: str = "small"
+    whisper_subtitle_model: str | None = None
     whisper_device: str = "auto"
     whisper_compute_type: str = "auto"
     whisper_cpu_threads: int = Field(default=4, ge=1, le=64)
@@ -38,6 +39,8 @@ class Settings(BaseSettings):
     deepseek_chunk_tokens: int = 6000
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
+    remotion_node_path: str = "node"
+    remotion_script_path: str = "/opt/remotion/render.mjs"
     subtitle_font_path: str = "/app/fonts/NotoSans-Regular.ttf"
     import_max_height: int = Field(default=1080, ge=240, le=2160)
     preview_max_width: int = Field(default=1280, ge=320, le=3840)

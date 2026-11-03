@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select
 
 from app.ai.selector import select_clips
 from app.ai.transcribe import transcribe
+from app.ai.clip_transcribe import transcribe_clip
 from app.config import get_settings
 from app.db import session_scope
 from app.domain.models import (Asset, Clip, ClipRevision, Export, Job, JobAttempt, Project,
@@ -29,6 +30,7 @@ from .celery_app import celery_app
 from .runtime import JobContext, claim
 from .service import ACTIVE, create_job
 from .tracking_cache import find_tracking_result, make_tracking_spec, ready_preview, valid_framing
+from .clip_subtitles import generate_subtitles, merged_segments
 
 
 def _snapshot(ctx: JobContext):
@@ -148,9 +150,10 @@ def _transcribe(ctx: JobContext, scratch: Path):
                                      end_ms=segment["end_ms"], text=segment["text"], words_json=segment.get("words_json")))
         project.status, project.error_message = ("ready" if segments else "no_speech"), None
         _complete(db, ctx, {"transcript_id": transcript.id, "version": version, "segments": len(segments), "runtime": result.get("runtime", {})})
-        if segments and job.input_json.get("analyze", True):
+        if (segments or job.input_json.get("visual_analysis", False)) and job.input_json.get("analyze", True):
             create_job(db, project, "analyze", {"transcript_id": transcript.id,
                         "content_profile": job.input_json.get("content_profile", "general"),
+                        "visual_analysis": job.input_json.get("visual_analysis", False),
                         "count": job.input_json.get("count", 5),
                         "min_duration_ms": job.input_json.get("min_duration_ms", 30000),
                         "max_duration_ms": job.input_json.get("max_duration_ms", 60000)}, f"transcript-{transcript.id}")
@@ -173,16 +176,70 @@ def _analyze(ctx: JobContext, scratch: Path):
             db.add(ProviderUsage(job_attempt_id=ctx.attempt_id, **report))
 
     settings = ctx.settings
+    vision = None
+    if job.input_json.get("visual_analysis", False) and job.input_json.get("content_profile") == "gaming":
+        from app.ai.game_vision import scan_gameplay
+        ctx.stage("analyze_frames")
+        vision = scan_gameplay(LocalStorage().path(source.storage_key), scratch,
+                               duration_ms=source.meta_json["duration_ms"], api_key=settings.deepseek_api_key,
+                               base_url=settings.deepseek_base_url, model=settings.deepseek_model,
+                               ffmpeg=settings.ffmpeg_path, cancelled=ctx.cancelled, usage=record_usage, progress=ctx.progress)
+        ctx.stage("analyze")
     selection_segments = [{key: value for key, value in segment.items() if key != "words_json"} for segment in segments]
     result = select_clips(selection_segments, duration_ms=source.meta_json["duration_ms"],
                           content_profile=job.input_json.get("content_profile", "general"),
+                          visual_events=vision.events if vision else None,
                           count=job.input_json.get("count", 5), min_duration_ms=job.input_json.get("min_duration_ms", 30000),
                           max_duration_ms=job.input_json.get("max_duration_ms", 60000), api_key=settings.deepseek_api_key,
                           base_url=settings.deepseek_base_url, model=settings.deepseek_model,
                           token_budget=settings.deepseek_chunk_tokens, timeout=settings.deepseek_timeout_seconds,
                           max_retries=settings.deepseek_max_retries, cancelled=ctx.cancelled, usage=record_usage)
+    # Visual hooks need not overlap dialogue. Check their audio locally before
+    # publishing empty captions; do not substitute scene descriptions for speech.
+    recovered_ranges, subtitle_checks = [], []
+    if vision:
+        for index, candidate in enumerate(result.candidates):
+            start, end = candidate["start_ms"], candidate["end_ms"]
+            if transcript_cues(segments, start, end):
+                continue
+            ctx.stage("subtitle_generate")
+            try:
+                recovery = transcribe_clip(LocalStorage().path(source.storage_key), scratch / f"subtitle-{index}",
+                                           start_ms=start, end_ms=end, language=transcript.language,
+                                           settings=settings, cancelled=ctx.cancelled, progress=ctx.progress)
+                recovered = recovery["segments"]
+                count = len(transcript_cues(recovered, start, end))
+                subtitle_checks.append({"start_ms": start, "end_ms": end, "cues": count,
+                                        "status": "recovered" if count else "no_speech"})
+                if count:
+                    recovered_ranges.append((start, end, recovered))
+                    segments = merged_segments(segments, recovered, start, end)
+            except Cancelled:
+                raise
+            except MediaError as exc:
+                # The candidate is still usable when ASR is unavailable. Its
+                # editor exposes an explicit retry without re-running vision.
+                subtitle_checks.append({"start_ms": start, "end_ms": end, "cues": 0,
+                                        "status": "failed", "error_code": exc.code})
+        ctx.stage("analyze")
     with session_scope() as db:
         _, project = ctx.check(db)
+        if recovered_ranges:
+            latest = db.scalar(select(Transcript).where(Transcript.project_id == project.id)
+                               .order_by(Transcript.version.desc()).limit(1))
+            segments = [{key: getattr(row, key) for key in ("start_ms", "end_ms", "text", "words_json")}
+                        for row in db.scalars(select(TranscriptSegment).where(TranscriptSegment.transcript_id == latest.id)
+                                              .order_by(TranscriptSegment.order))]
+            for start, end, recovered in recovered_ranges:
+                segments = merged_segments(segments, recovered, start, end)
+            transcript = Transcript(project_id=project.id, version=latest.version + 1, language=latest.language,
+                                    model=settings.whisper_subtitle_model or settings.whisper_model, config_json={"origin": "visual_clip_subtitles",
+                                    "base_transcript_id": latest.id, "job_id": ctx.job_id})
+            db.add(transcript)
+            db.flush()
+            for order, segment in enumerate(segments):
+                db.add(TranscriptSegment(transcript_id=transcript.id, order=order,
+                                         **{key: segment.get(key) for key in ("start_ms", "end_ms", "text", "words_json")}))
         clip_ids = []
         for candidate in result.candidates:
             clip = Clip(project_id=project.id, origin="ai")
@@ -201,6 +258,9 @@ def _analyze(ctx: JobContext, scratch: Path):
             clip_ids.append(clip.id)
         project.status, project.error_message = "ready", None
         _complete(db, ctx, {"clip_ids": clip_ids, "count": len(clip_ids), "requested": result.requested,
+                            "content_profile": job.input_json.get("content_profile", "general"),
+                            "subtitle_checks": subtitle_checks,
+                            "visual_analysis": {"sampled_frames": vision.sampled_frames, "interval_ms": vision.interval_ms, "events": len(vision.events)} if vision else None,
                             "message": f"{len(clip_ids)} kandidat valid tersedia dari {result.requested} yang diminta."})
 
 
@@ -263,6 +323,10 @@ def _render(ctx: JobContext, scratch: Path):
         snapshot['subtitle_events'] = subtitle_events(db, revision, snapshot['cues'])
         export.status = "running"
         export_id, config = export.id, export.config_json
+        if config.get("renderer", "ffmpeg") == "remotion":
+            from app.media.remotion import REMOTION_RENDERER_VERSION
+            if config.get("renderer_version") != REMOTION_RENDERER_VERSION:
+                raise MediaError("remotion_version_changed", "Versi template Remotion berubah. Buat ekspor baru untuk revisi ini.")
         preview = ready_preview(db, project)
         tracking_source = LocalStorage().path(preview.storage_key) if preview else None
         tracking_result = None
@@ -279,6 +343,8 @@ def _render(ctx: JobContext, scratch: Path):
     settings = ctx.settings
     result = render_clip(LocalStorage().path(source.storage_key), scratch, snapshot, config,
                          ffmpeg_bin=settings.ffmpeg_path, ffprobe_bin=settings.ffprobe_path,
+                         remotion_node_path=settings.remotion_node_path,
+                         remotion_script_path=settings.remotion_script_path,
                          fonts_dir=Path(settings.subtitle_font_path).parent,
                          tracking_model_path=Path(settings.tracking_model_path), tracking_source=tracking_source,
                          speaker_model_path=Path(settings.speaker_model_path),
@@ -359,6 +425,7 @@ def _delete_assets(ctx: JobContext, scratch: Path):
 
 
 HANDLERS = {"import_url": _import_url, "validate": _validate, "prepare_preview": _validate, "transcribe": _transcribe,
+            "subtitle_generate": generate_subtitles,
             "analyze": _analyze, "track_preview": _track_preview, "render": _render,
             "delete_assets": _delete_assets}
 
@@ -394,7 +461,7 @@ def run_job(job_id: str):
                 if export:
                     export.status = job.status
                 project = db.get(Project, job.project_id)
-                if job.kind not in ("render", "track_preview") and project.lifecycle_state == "active":
+                if job.kind not in ("render", "track_preview", "subtitle_generate") and project.lifecycle_state == "active":
                     # Keep transcript accessible after AI failure.
                     project.status = "ready" if job.kind == "analyze" else "failed"
                     project.error_message = message
