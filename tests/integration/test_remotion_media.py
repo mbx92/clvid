@@ -9,6 +9,7 @@ import pytest
 
 from app.media.render import render_clip
 from app.media.remotion import REMOTION_RENDERER_VERSION
+from app.media.word_captions import highlight_events
 
 FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
@@ -57,6 +58,28 @@ def render(source, output, style, cues, **snapshot):
         "cues": cues, **snapshot,
     }, {"width": 720, "renderer": "remotion", "renderer_version": REMOTION_RENDERER_VERSION},
         ffmpeg_bin=FFMPEG, ffprobe_bin=FFPROBE, remotion_script_path=SCRIPT)
+
+
+def test_podcast_white_card_moves_with_speech_and_disappears_in_silence(source, tmp_path):
+    cues = [{'start_ms': 0, 'end_ms': 2000, 'text': 'Buat rokok gitu depan gedung'}]
+    words = [dict(word=word, start_ms=start + 500, end_ms=end + 500) for word, start, end in [
+        ('Buat', 0, 300), ('rokok', 400, 800), ('gitu', 900, 1200),
+        ('depan', 1300, 1600), ('gedung', 1700, 1900)]]
+    result = render(source, tmp_path / 'podcast', {'remotion_template': 'podcast', 'font_size': 64,
+        'bold': True, 'italic': True, 'uppercase': True, 'auto_fit': False,
+        'text_color': '#FFE600', 'outline_width': 6, 'safe_margin': .16, 'animation': 'none'},
+        cues, subtitle_events=highlight_events(cues, words, 500))
+    def card(time):
+        pixels = frame(result['mp4'], time)
+        y, x = np.where(np.all(pixels > 235, axis=2))
+        return len(x), (float(x.mean()), float(y.mean())) if len(x) else (0, 0)
+    first, second, silent, last = (card(time) for time in (.15, .55, .85, 1.85))
+    assert first[0] > 500 and second[0] > 500 and last[0] > 500
+    assert silent[0] < 10  # Text stays yellow; the white card alone disappears.
+    assert second[1][0] > first[1][0] + 50
+    assert last[1][1] > first[1][1] + 30  # Last word is on the second line.
+    assert_audio(result)
+    assert 'Buat rokok gitu depan gedung' in result['srt'].read_text(encoding='utf-8')
 
 
 @pytest.mark.parametrize("template", ["minimal", "gaming", "cinematic"])

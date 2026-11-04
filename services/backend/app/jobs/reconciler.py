@@ -41,13 +41,21 @@ def reconcile_once() -> dict:
             if cancelled:
                 job.status, job.finished_at = "cancelled", now
                 job.error_code, job.error_message = "worker_lost", "Worker terputus setelah pembatalan diminta. Hasil tidak dipublikasikan."
+            elif job.kind == "story_produce" and job.input_json.get('provider_config', {}).get('story_media_provider') != 'local':
+                # The provider may have billed a request before the worker lost
+                # its lease. Let the user review durable assets before retrying.
+                job.status, job.finished_at = "failed", now
+                job.error_code, job.error_message = "worker_lost", (
+                    "Worker produksi terputus. Proses tidak diulang otomatis karena permintaan berbayar mungkin sudah diproses. "
+                    "Periksa aset yang tersedia sebelum mencoba kembali secara manual; percobaan baru dapat menambah biaya."
+                )
             elif job.attempt < settings.job_max_attempts:
                 job.status = "queued"
                 db.add(OutboxEvent(job_id=job.id, payload={"job_id": job.id}))
             else:
                 job.status, job.finished_at = "failed", now
                 job.error_code, job.error_message = "worker_lost", "Worker berhenti sebelum pekerjaan selesai. Batas percobaan tercapai; periksa konfigurasi server."
-                if job.kind not in ("render", "track_preview", "subtitle_generate") and project.lifecycle_state == "active":
+                if job.kind not in ("render", "track_preview", "subtitle_generate", "subtitle_translate", "story_generate", "story_render", "story_produce") and project.lifecycle_state == "active":
                     project.status, project.error_message = ("ready" if job.kind == "analyze" else "failed"), job.error_message
             export = db.scalar(select(Export).where(Export.job_id == job.id))
             if export:

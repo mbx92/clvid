@@ -23,13 +23,13 @@ window.ClipperRemotion = {
   }
 };`
 
-async function clipFixture(page: Page, sourcePath?: string, durationMs = 5000) {
+async function clipFixture(page: Page, sourcePath?: string, durationMs = 5000, captionText = 'Awas serangannya', timedWords?: { word: string; start_ms: number; end_ms: number }[]) {
   let clip: any = {
     id: 'remotion-clip', project_id: 'remotion-project', origin: 'ai', created_at: '2026-11-03T00:00:00Z', media_duration_ms: 60000,
     revision: { id: 'revision-1', revision: 1, start_ms: 10000, end_ms: 10000 + durationMs, title: 'Awas serangannya',
       reason: '', crop_json: { mode: 'fit', x: .5, y: .5 },
-      cues: [{ start_ms: 0, end_ms: 2500, text: 'Awas serangannya' }, { start_ms: 3000, end_ms: 5000, text: 'Menang!' }],
-      source_words: [{ word: 'Awas', start_ms: 10000, end_ms: 10800 }, { word: 'serangannya', start_ms: 10900, end_ms: 12500 }, { word: 'Menang!', start_ms: 13000, end_ms: 15000 }],
+      cues: [{ start_ms: 0, end_ms: 2500, text: captionText }, { start_ms: 3000, end_ms: 5000, text: 'Menang!' }],
+      source_words: timedWords || [{ word: 'Awas', start_ms: 10000, end_ms: 10800 }, { word: 'serangannya', start_ms: 10900, end_ms: 12500 }, { word: 'Menang!', start_ms: 13000, end_ms: 15000 }],
       subtitle_style_json: { enabled: true, display_mode: 'sentence', font_size: 52, position: 'bottom', background: true, safe_margin: .15 } },
   }
   let saved: any
@@ -42,7 +42,7 @@ async function clipFixture(page: Page, sourcePath?: string, durationMs = 5000) {
   }
   await page.route('**/api/v1/**', async route => {
     const path = new URL(route.request().url()).pathname
-    if (path === '/api/v1/auth/me') return route.fulfill({ json: { id: 'test-user', email: 'test@example.invalid', csrf_token: 'test-token' } })
+    if (path === '/api/v1/auth/me') return route.fulfill({ headers: { 'Set-Cookie': 'clipper_csrf=test-token; Path=/; SameSite=Lax' }, json: { id: 'test-user', email: 'test@example.invalid', csrf_token: 'test-token' } })
     if (source && path === '/api/v1/assets/remotion-source/content') {
       const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range || '')
       if (range) {
@@ -100,6 +100,78 @@ async function dragAcross(page: Page, label: string | RegExp, fraction: number) 
   await page.mouse.up()
 }
 
+async function chooseTypographyPreset(page: Page, name: string) {
+  const disclosure = page.getByRole('button', {name: 'Preset warna & tipografi', exact: false})
+  if (await disclosure.count() && await disclosure.getAttribute('aria-expanded') === 'false') await disclosure.click()
+  await page.getByRole('button', {name: `Preset ${name}`, exact: true}).click()
+}
+
+test('Podcast kuning follows spoken words, clears pauses and survives save/reload', async ({ page }, testInfo) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const fixture = await clipFixture(page, undefined, 5000, 'Buat rokok gitu depan gedung', [
+    { word: 'Buat', start_ms: 10000, end_ms: 10300 }, { word: 'rokok', start_ms: 10400, end_ms: 10800 },
+    { word: 'gitu', start_ms: 10900, end_ms: 11200 }, { word: 'depan', start_ms: 11300, end_ms: 11700 },
+    { word: 'gedung', start_ms: 11800, end_ms: 12200 }, { word: 'Menang!', start_ms: 13000, end_ms: 15000 },
+  ])
+  await subtitleSettings(page)
+  await page.getByRole('button', { name: 'Preset Podcast kuning', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Renderer subtitle', exact: true })).toContainText('Remotion')
+  await expect(page.getByRole('combobox', { name: 'Template Remotion', exact: true })).toContainText('Podcast kuning')
+  const caption = page.locator('[data-caption-template="podcast"]')
+  await seek(page, 10500)
+  await expect(caption).toBeVisible()
+  await expect(caption).toHaveText('BUAT ROKOK GITU DEPAN\nGEDUNG')
+  await expect(caption).toHaveCSS('font-style', 'italic')
+  await expect(caption).toHaveCSS('color', 'rgb(255, 230, 0)')
+  await expect(caption.locator('[data-podcast-highlight]')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(caption.locator('[data-podcast-highlight]')).toHaveCount(1)
+  await expect(caption.locator('[data-active="true"]')).toHaveText('ROKOK')
+  const layoutBefore = await caption.boundingBox()
+  await seek(page, 10050)
+  await expect(caption.locator('[data-active="true"]')).toHaveText('BUAT')
+  await seek(page, 10850)
+  await expect(caption.locator('[data-podcast-highlight]')).toHaveCount(0)
+  await expect(caption).toHaveText('BUAT ROKOK GITU DEPAN\nGEDUNG')
+  await seek(page, 11900)
+  await expect(caption.locator('[data-active="true"]')).toHaveText('GEDUNG')
+  expect(await caption.boundingBox()).toEqual(layoutBefore)
+  await seek(page, 10500)
+  await expect(caption.locator('[data-active="true"]')).toHaveText('ROKOK')
+  await page.locator('.portrait-frame').screenshot({ path: testInfo.outputPath('podcast-preview.png') })
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click()
+  await expect.poll(() => fixture.saved()?.subtitle_style_json).toMatchObject({ renderer: 'remotion', remotion_template: 'podcast', italic: true, bold: true, uppercase: true, safe_margin: .16 })
+  await page.reload()
+  await expect(page.getByLabel('Judul klip', { exact: true })).toHaveValue('Awas serangannya')
+  await seek(page, 10500)
+  await expect(caption).toBeVisible()
+  await expect(caption.locator('[data-active="true"]')).toHaveText('ROKOK')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await caption.scrollIntoViewIfNeeded()
+  await expect(caption).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2)).toBe(true)
+  await page.locator('.portrait-frame').screenshot({ path: testInfo.outputPath('podcast-preview-mobile.png') })
+  await page.getByRole('button', { name: 'Ekspor', exact: true }).click()
+  await page.getByRole('button', { name: 'Mulai ekspor', exact: true }).click()
+  await expect.poll(fixture.exported).toEqual({ revision: 2, resolution: 1080 })
+  expect(errors).toEqual([])
+})
+
+test('Podcast kuning explains missing timing and does not invent a highlight or allow an unsynchronized export', async ({ page }) => {
+  await clipFixture(page, undefined, 5000, 'Teks telah diubah')
+  await subtitleSettings(page)
+  await page.getByRole('button', { name: 'Preset Podcast kuning', exact: true }).click()
+  await seek(page, 10500)
+  await expect(page.locator('[data-caption-template="podcast"]')).toBeVisible()
+  await expect(page.locator('[data-podcast-highlight]')).toHaveCount(0)
+  await expect(page.getByText(/Highlight belum tersedia\./)).toBeVisible()
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click()
+  await expect(page.getByText('Tersimpan', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Ekspor', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Mulai ekspor', exact: true })).toBeDisabled()
+  await expect(page.getByText(/Highlight kata belum memiliki timestamp/)).toBeVisible()
+})
+
 test('Remotion selection, typography and template survive save/reload and export the saved revision', async ({ page }) => {
   let loads = 0
   const errors: string[] = []
@@ -113,7 +185,7 @@ test('Remotion selection, typography and template survive save/reload and export
   await expect(page.locator('.remotion-caption-host')).toHaveAttribute('data-frame', '0')
   await expect(page.locator('.caption-preview')).toHaveCount(0)
   await choose(page, 'Template Remotion', 'Sinematik')
-  await page.getByRole('button', { name: 'Preset Gaming impact', exact: true }).click()
+  await chooseTypographyPreset(page, 'Gaming impact')
   await expect(page.getByRole('combobox', { name: 'Renderer subtitle', exact: true })).toContainText('Remotion')
   await expect(page.getByRole('combobox', { name: 'Template Remotion', exact: true })).toContainText('Sinematik')
   await page.getByRole('button', { name: 'Warna & efek', exact: true }).click()
@@ -226,7 +298,7 @@ test('real Remotion bundle uses the local font, animation and native video frame
   await expect.poll(() => caption.evaluate(el => Number(getComputedStyle(el).opacity))).toBeLessThan(1)
   await seek(page, 10500)
   await expect(caption).toHaveCSS('opacity', '1')
-  await page.getByRole('button', { name: 'Preset Gaming impact', exact: true }).click()
+  await chooseTypographyPreset(page, 'Gaming impact')
   await expect(host.getByText('AWAS SERANGANNYA', { exact: true })).toHaveCSS('color', 'rgb(255, 230, 0)')
   await page.screenshot({ path: testInfo.outputPath('remotion-gaming-desktop.png') })
   await choose(page, 'Template Remotion', 'Sinematik')
@@ -462,4 +534,56 @@ test('real Remotion preview recovers after an oversized draft subtitle is correc
   await page.getByLabel('Teks subtitle 1', { exact: true }).fill('Preview pulih')
   await expect(page.locator('.remotion-preview-error')).toHaveCount(0)
   await expect(page.locator('.remotion-caption-host').getByText('Preview pulih', { exact: true })).toBeVisible()
+})
+
+
+test('Remotion style controls remain readable without shrinking at desktop and mobile sizes', async ({page}) => {
+  await page.route('**/remotion/player.js',route=>route.fulfill({contentType:'application/javascript',body:playerBundle}))
+  await clipFixture(page)
+  await subtitleSettings(page)
+  await choose(page,'Renderer subtitle','Remotion')
+  for(const [width,height] of [[1366,768],[1920,1080],[390,844]]) {
+    await page.setViewportSize({width,height})
+    if(width<760) await page.getByRole('button',{name:'Alat editor',exact:true}).click()
+    await choose(page,'Template Remotion','Podcast kuning')
+    await expect(page.getByRole('button',{name:'Preset Podcast kuning',exact:true})).toHaveCount(0)
+    await expect(page.locator('.subtitle-presets')).toHaveCount(0)
+    const control=page.getByRole('combobox',{name:'Template Remotion',exact:true})
+    expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(36)
+    expect(await page.locator('.desktop-fit-content').evaluate(el=>getComputedStyle(el).zoom)).toBe('1')
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy()
+    await page.screenshot({path:test.info().outputPath(`remotion-settings-${width}.png`)})
+    await page.getByRole('button',{name:'Warna & efek',exact:true}).click()
+    await page.getByRole('slider',{name:'Ketebalan outline',exact:true}).focus()
+    await page.screenshot({path:test.info().outputPath(`remotion-colors-${width}.png`)})
+    await page.getByRole('button',{name:'Preset',exact:true}).click()
+  }
+})
+
+
+test('long subtitles can be repaired in a reviewed draft and saved for export', async ({page}) => {
+  await page.route('**/remotion/player.js',route=>route.fulfill({contentType:'application/javascript',body:playerBundle}))
+  const text='Kopi tumbuh dalam buah merah dan setiap biji memiliki bentuk yang menarik untuk diperhatikan. '.repeat(4).trim()
+  const fixture=await clipFixture(page,undefined,5000,text)
+  await page.getByRole('button',{name:'Sesuaikan subtitle',exact:true}).click()
+  const dialog=page.getByRole('dialog',{name:'Sesuaikan subtitle',exact:true})
+  await expect(dialog).toContainText('diperkirakan secara proporsional')
+  expect(fixture.saved()).toBeUndefined()
+  await expect(page.getByLabel('Teks subtitle 1',{exact:true})).toHaveValue(text)
+  await page.screenshot({path:test.info().outputPath('subtitle-repair-review.png')})
+  await dialog.getByRole('button',{name:'Batal',exact:true}).click()
+  await expect(page.getByLabel('Teks subtitle 1',{exact:true})).toHaveValue(text)
+  await page.getByRole('button',{name:'Sesuaikan subtitle',exact:true}).click()
+  await page.getByRole('button',{name:'Terapkan penyesuaian',exact:true}).click()
+  await expect(page.getByRole('button',{name:'Sesuaikan subtitle',exact:true})).toHaveCount(0)
+  await page.getByRole('button',{name:'Simpan',exact:true}).click()
+  const cues=fixture.saved().cues
+  expect(cues.slice(0,-1).map((c:any)=>c.text).join(' ')).toBe(text)
+  expect(cues[0].start_ms).toBe(0)
+  expect(cues.at(-2).end_ms).toBe(2500)
+  expect(fixture.saved().subtitle_style_json.auto_fit).toBe(true)
+  await page.getByRole('button',{name:'Ekspor',exact:true}).click()
+  await expect(page.getByRole('button',{name:'Mulai ekspor',exact:true})).toBeEnabled()
+  await page.getByRole('button',{name:'Mulai ekspor',exact:true}).click()
+  await expect.poll(fixture.exported).toEqual({revision:2,resolution:1080})
 })

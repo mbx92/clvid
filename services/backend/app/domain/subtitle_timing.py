@@ -1,6 +1,6 @@
 from sqlalchemy import select
 from app.domain.models import TranscriptSegment
-from app.media.word_captions import word_events
+from app.media.word_captions import highlight_events, word_events
 
 
 def source_words(db, revision, start=None, end=None):
@@ -22,6 +22,9 @@ def source_words(db, revision, start=None, end=None):
 
 
 def subtitle_events(db, revision, cues):
+    style = revision.subtitle_style_json
+    if style.get('enabled', True) and style.get('renderer') == 'remotion' and style.get('remotion_template') == 'podcast':
+        return highlight_events(cues, source_words(db, revision), revision.start_ms)
     if revision.subtitle_style_json.get('enabled', True) and revision.subtitle_style_json.get('display_mode') == 'words':
         return word_events(cues, source_words(db, revision), revision.start_ms)
     return cues

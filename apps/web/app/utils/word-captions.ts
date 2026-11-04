@@ -1,4 +1,4 @@
-import type { Cue, SourceWord } from '../types/api'
+import type { Cue, SourceWord, WordSpan } from '../types/api'
 const normalized = (word: string) => word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
 export function alignWords(cues: Cue[], sourceWords: SourceWord[], clipStart: number) {
   const events: Cue[] = []
@@ -31,4 +31,37 @@ export function alignWords(cues: Cue[], sourceWords: SourceWord[], clipStart: nu
     else events.push(...grouped)
   }
   return { events, missing }
+}
+
+/** Whole-sentence karaoke. Token ranges use observed ASR times, never estimates.
+ * Keep in sync with media.word_captions.highlight_events (shared fixtures). */
+export function alignHighlightWords(cues: Cue[], sourceWords: SourceWord[], clipStart: number) {
+  let missing = 0
+  const highlighted = cues.map(cue => {
+    const start = clipStart + cue.start_ms, end = clipStart + cue.end_ms
+    const words = sourceWords.filter(w => w.end_ms > start && w.start_ms < end && normalized(w.word))
+    const tokens = cue.text.trim().split(/\s+/u).map((text, index) => ({ index, text: normalized(text) })).filter(t => t.text)
+    const spans: WordSpan[] = []
+    let valid = words.length > 0 && tokens.length > 0 &&
+      words.every((w, k) => w.end_ms > w.start_ms && (!k || w.start_ms >= words[k - 1]!.end_ms)) &&
+      tokens.map(t => t.text).join('') === words.map(w => normalized(w.word)).join('')
+    let i = 0, j = 0
+    while (valid && i < tokens.length && j < words.length) {
+      const firstI = i, firstJ = j
+      let written = tokens[i++]!.text, spoken = normalized(words[j++]!.word)
+      while (written !== spoken && (i < tokens.length || j < words.length)) {
+        if (written.length <= spoken.length && i < tokens.length) written += tokens[i++]!.text
+        else if (j < words.length) spoken += normalized(words[j++]!.word)
+        else break
+      }
+      const begin = Math.max(start, words[firstJ]!.start_ms), finish = Math.min(end, words[j - 1]!.end_ms)
+      if (written !== spoken || finish <= begin) { valid = false; break }
+      spans.push({ start_ms: begin - clipStart, end_ms: finish - clipStart,
+        start_word: tokens[firstI]!.index, end_word: tokens[i - 1]!.index + 1 })
+    }
+    valid = valid && i === tokens.length && j === words.length
+    if (!valid) missing++
+    return { ...cue, word_spans: valid ? spans : [] }
+  })
+  return { cues: highlighted, missing }
 }

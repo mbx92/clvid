@@ -38,7 +38,7 @@ Manifest version 1 contains `videoPath`, `outputPath`, `durationMs`, `width`,
 `height`, `fps`, `cues`, and `style`. Supported portrait sizes are 720×1280 and
 1080×1920 at 30 fps. Cue timestamps are local integer milliseconds. Style uses
 the existing subtitle fields plus `renderer: "remotion"` and
-`remotion_template: "minimal" | "gaming" | "cinematic"`.
+`remotion_template: "minimal" | "gaming" | "cinematic" | "podcast"`.
 
 Both paths must stay inside the manifest's directory, including after resolving
 symlinks. The source must be an existing MP4 and the output must not exist. The
@@ -75,6 +75,19 @@ coordinates. Overlapping zooms use the strongest interpolated scale, with smooth
 ramps no longer than 250 ms. On a very short clip where titles overlap, the outro
 takes precedence. Title text is limited to 80 Unicode code points. Enabled titles
 need text for export; the preview allows incomplete drafts without showing them.
+
+The Podcast template keeps the sentence visible and moves a slightly tilted
+white card to the spoken word using transcript timestamps. It clears the card
+during silence. Cue `word_spans` carry clip-relative `start_ms`/`end_ms` and
+zero-based, end-exclusive `start_word`/`end_word` token ranges. Repeated words
+keep their own indices. ASR groups retain their actual timing; no duration is
+invented for missing words. Export requires matching timestamps unless captions
+are disabled; preview shows the sentence without a highlight and the editor
+explains how to repair missing or mismatched timing. The editor's
+**Podcast kuning** preset enables Remotion and applies yellow, bold italic
+uppercase text with a black outline, bottom placement (16% safe margin), and
+64px greedy wrapping. Its ordinary animation can still be customized. The
+same caption component draws both the preview and the exported MP4.
 
 All effects stay inside the existing clip duration and preserve audio. Transitions
 and zoom affect only the video; titles remain available when captions are disabled.

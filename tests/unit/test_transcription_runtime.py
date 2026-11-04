@@ -87,6 +87,23 @@ def test_explicit_cuda_does_not_silently_run_cpu():
                                 cuda_device_count=lambda: 0, report=lambda _: None)
 
 
+def test_sequential_cuda_uses_gpu_without_batched_pipeline():
+    observed=[]
+    class Model:
+        def __init__(self,*a,**kw):
+            assert kw['device']=='cuda'
+        def transcribe(self,source,**kw):
+            observed.append(kw)
+            return iter([segment(0,2),segment(55,59.8)]),INFO
+    def batched(**kw):
+        pytest.fail('Subtitle quality path must not invoke batched decoding')
+    result=transcribe_with_runtime(config(batch_size=1),model_factory=Model,batched_factory=batched,
+        cuda_device_count=lambda:1,report=lambda _:None)
+    assert result['runtime']['device']=='cuda'
+    assert result['segments'][-1]['end_ms']==59800
+    assert observed[0]['word_timestamps'] is True
+
+
 def test_clip_vad_options_and_quality_evidence_survive_child_output():
     observed = []
     class Model:

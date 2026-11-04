@@ -1,7 +1,8 @@
 """Saved Remotion style, immutable export config, and queued version fencing."""
 from sqlalchemy import select
 
-from app.domain.models import ClipRevision, Export, Job, Project
+from app.domain.models import ClipRevision, Export, Job, Project, Transcript, TranscriptSegment
+from app.domain.subtitle_timing import subtitle_events
 from app.jobs.tasks import run_job
 from app.media.remotion import REMOTION_RENDERER_VERSION
 
@@ -14,6 +15,52 @@ def create_clip(client, project_id, style=None):
     })
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_podcast_reference_template_is_saved_and_used_in_export(clients, ready_project, database):
+    owner = clients[0]
+    with database() as db:
+        transcript = Transcript(project_id=ready_project['project_id'], version=1, language='id', model='fixture')
+        db.add(transcript)
+        db.flush()
+        db.add(TranscriptSegment(transcript_id=transcript.id, order=0, start_ms=1100, end_ms=1800, text='Momen lucu',
+            words_json=[{'word': 'Momen', 'start_ms': 1100, 'end_ms': 1400}, {'word': ' lucu', 'start_ms': 1500, 'end_ms': 1800}]))
+        db.commit()
+    clip = create_clip(owner, ready_project['project_id'])
+    endpoint = f"/api/v1/clips/{clip['id']}"
+    style = {'renderer': 'remotion', 'remotion_template': 'podcast', 'bold': True,
+             'italic': True, 'uppercase': True, 'text_color': '#FFE600', 'outline_width': 6,
+             'background': False, 'font_size': 64, 'auto_fit': False, 'safe_margin': .16}
+    saved = owner.patch(endpoint, json={'expected_revision': 1, 'subtitle_style_json': style})
+    assert saved.status_code == 200
+    reloaded = owner.get(endpoint).json()['revision']['subtitle_style_json']
+    assert all(reloaded[key] == value for key, value in style.items())
+    exported = owner.post(endpoint + '/exports', json={'revision': 2, 'resolution': 720})
+    assert exported.status_code == 202
+    with database() as db:
+        export = db.scalar(select(Export).where(Export.job_id == exported.json()['id']))
+        config = export.config_json
+        assert config['remotion_template'] == 'podcast'
+        assert config['renderer_version'] == REMOTION_RENDERER_VERSION
+        revision = db.get(ClipRevision, export.clip_revision_id)
+        events = subtitle_events(db, revision, [{'start_ms': 100, 'end_ms': 2000, 'text': 'Momen lucu'}])
+        assert events == [{'start_ms': 100, 'end_ms': 2000, 'text': 'Momen lucu', 'word_spans': [
+            {'start_ms': 100, 'end_ms': 400, 'start_word': 0, 'end_word': 1},
+            {'start_ms': 500, 'end_ms': 800, 'start_word': 1, 'end_word': 2}]}]
+        revision.subtitle_style_json = {**revision.subtitle_style_json, 'display_mode': 'words'}
+        assert subtitle_events(db, revision, [{'start_ms': 100, 'end_ms': 2000, 'text': 'Momen lucu'}]) == events
+
+
+def test_podcast_export_requires_word_timing_only_when_captions_are_enabled(clients, ready_project):
+    owner = clients[0]
+    style = {'renderer': 'remotion', 'remotion_template': 'podcast'}
+    clip = create_clip(owner, ready_project['project_id'], style)
+    endpoint = f"/api/v1/clips/{clip['id']}"
+    response = owner.post(endpoint + '/exports', json={'revision': 1, 'resolution': 720})
+    assert response.status_code == 422 and response.json()['code'] == 'SUBTITLE_WORD_TIMING'
+    assert 'Highlight kata' in response.json()['message']
+    assert owner.patch(endpoint, json={'expected_revision': 1, 'subtitle_style_json': {**style, 'enabled': False}}).status_code == 200
+    assert owner.post(endpoint + '/exports', json={'revision': 2, 'resolution': 720}).status_code == 202
 
 
 def test_remotion_style_round_trip_and_saved_revision_selects_export_renderer(clients, ready_project, database):

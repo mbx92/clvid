@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import ClientDisconnect
 
 from app.api.auth import current_user
+from app.api.schemas import SubtitleTranslateInput
 from app.api.errors import AppError
 from app.api.schemas import ClipInput, ClipPatch, ExportInput, ProcessInput, ProjectInput, SourceUrlInput, TrackingPreviewInput, ProcessingSettingsInput, SubtitleGenerateInput, RemotionEffects
 from app.api.serializers import ACTIVE, asset_data, clip_data, cue_data, export_data, job_data, project_data
@@ -18,7 +19,7 @@ from app.ai.subtitle_recovery_config import recovery_signature
 from app.config import get_settings
 from app.db import get_db
 from app.domain.limits import processing_limits, effective_settings, can_retry_after_limit_increase, MAX_CLIP_MS, MAX_SOURCE_SECONDS, MAX_SOURCE_BYTES
-from app.domain.models import ProcessingSettings
+from app.domain.models import ProcessingSettings, Storyboard
 from app.domain.models import Publication
 from app.domain.editing import remap_cues, validate_bounds, validate_cues
 from app.domain.subtitle_timing import source_words, subtitle_events
@@ -110,7 +111,7 @@ def action_request(db, project, job, action, key):
 
 @router.get("/projects")
 def projects(search: str = "", status: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100), user: User = Depends(current_user), db: Session = Depends(get_db)):
-    query = select(Project).where(Project.owner_id == user.id, Project.lifecycle_state == "active")
+    query = select(Project).where(Project.owner_id == user.id, Project.lifecycle_state == "active", Project.id.not_in(select(Storyboard.project_id)))
     if search:
         query = query.where(Project.name.icontains(search, autoescape=True))
     if status:
@@ -480,6 +481,25 @@ def generate_clip_subtitles(clip_id: str, body: SubtitleGenerateInput, idempoten
               "replace_existing": body.replace_existing,
               "recovery_signature": recovery_signature(get_settings())}
     job = queue_job(db, project, "subtitle_generate", params, idempotency_key)
+    db.commit()
+    return job_data(job)
+
+
+@router.post('/clips/{clip_id}/subtitles/translate', status_code=202)
+def translate_clip_subtitles(clip_id: str, body: SubtitleTranslateInput, idempotency_key: str | None = Header(None), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    clip, project = own_clip(db,user,clip_id,lock=True)
+    revision = db.get(ClipRevision,clip.active_revision_id)
+    if revision.revision != body.expected_revision:
+        raise AppError(409,'REVISION_CONFLICT','Klip sudah berubah. Muat revisi terbaru sebelum menerjemahkan.')
+    cues = list(db.scalars(select(SubtitleCue).where(SubtitleCue.clip_revision_id == revision.id)))
+    if not cues:
+        raise AppError(422,'SUBTITLES_EMPTY','Buat subtitle dari audio terlebih dahulu, lalu terjemahkan ke Indonesia.')
+    if sum(len(c.text) for c in cues) > 100000:
+        raise AppError(422,'SUBTITLES_TOO_LONG','Teks terlalu panjang untuk satu permintaan terjemahan. Gunakan klip lebih pendek.')
+    if not get_settings().deepseek_api_key:
+        raise AppError(422,'AI_NOT_CONFIGURED','DeepSeek belum dikonfigurasi untuk terjemahan.')
+    job = queue_job(db,project,'subtitle_translate',{'clip_id':clip.id,'clip_revision_id':revision.id,
+        'target_language':body.target_language,'model':get_settings().deepseek_model,'translation_version':1},idempotency_key)
     db.commit()
     return job_data(job)
 

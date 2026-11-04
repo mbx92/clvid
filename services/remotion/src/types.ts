@@ -2,7 +2,10 @@ export interface Cue {
   start_ms: number;
   end_ms: number;
   text: string;
+  word_spans?: WordSpan[];
 }
+
+export interface WordSpan {start_ms: number; end_ms: number; start_word: number; end_word: number}
 
 export interface TitleEffect {
   enabled: boolean;
@@ -37,7 +40,7 @@ export const defaultEffects: RemotionEffects = {
 export interface SubtitleStyle {
   enabled: boolean;
   renderer: 'remotion';
-  remotion_template: 'minimal' | 'gaming' | 'cinematic';
+  remotion_template: 'minimal' | 'gaming' | 'cinematic' | 'podcast';
   remotion_effects?: RemotionEffects;
   display_mode: 'sentence' | 'words';
   animation: 'none' | 'fade' | 'pop' | 'rise';

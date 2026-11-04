@@ -3,6 +3,15 @@ import type { SubtitleStyle } from '../types/api'
 export const subtitleDefaults = { renderer: 'ffmpeg' as const, remotion_template: 'gaming' as const, auto_fit: true, bold: false, italic: false, uppercase: false,
   text_color: '#FFFFFF', outline_color: '#111111', outline_width: 2.5, shadow: 0, background_color: '#000000',
   animation: 'none' as const, animation_ms: 180 }
+
+/** Full reference template: unlike typography presets, this opts into Remotion. */
+export const podcastSubtitlePreset = {
+  name: 'Podcast kuning',
+  style: { ...subtitleDefaults, enabled: true, renderer: 'remotion' as const, remotion_template: 'podcast' as const,
+    display_mode: 'sentence' as const, background: false, text_color: '#FFE600', outline_color: '#111111',
+    bold: true, italic: true, uppercase: true, outline_width: 6, shadow: 2,
+    font_size: 64, auto_fit: false, position: 'bottom' as const, safe_margin: .16 },
+}
 export const subtitlePresets = [
   { name: 'Sinematik', color: '#FFF3D6', background: '#252A31', style: { ...subtitleDefaults, display_mode: 'sentence' as const, background: false, text_color: '#FFF3D6', outline_width: 1.5, shadow: 2, font_size: 46, animation: 'fade' as const, animation_ms: 300 } },
   { name: 'Gaming impact', color: '#FFE600', background: '#29282D', style: { ...subtitleDefaults, display_mode: 'sentence' as const, background: false, text_color: '#FFE600', bold: true, uppercase: true, outline_width: 5, shadow: 3, font_size: 68, animation: 'pop' as const, animation_ms: 160 } },

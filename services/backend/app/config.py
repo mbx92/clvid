@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,6 +38,21 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: int = 90
     deepseek_max_retries: int = 2
     deepseek_chunk_tokens: int = 6000
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    story_image_model: str = "gpt-image-1-mini"
+    story_image_quality: str = "medium"
+    story_speech_model: str = "gpt-4o-mini-tts"
+    story_speech_voice: str = "coral"
+    story_provider_timeout_seconds: int = Field(default=180, ge=10, le=600)
+    story_media_provider: Literal['local', 'openai'] = 'local'
+    story_local_enabled: bool = False
+    story_models_root: Path = Path('/data/story-models')
+    story_local_python: str = '/opt/story-local/bin/python'
+    story_local_image_steps: int = Field(default=20, ge=4, le=50)
+    story_local_image_device: Literal['auto', 'cuda', 'cpu'] = 'auto'
+    story_local_prompt_language: Literal['auto', 'id', 'en'] = 'id'
+    story_local_timeout_seconds: int = Field(default=600, ge=30, le=3600)
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
     remotion_node_path: str = "node"

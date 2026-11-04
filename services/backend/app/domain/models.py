@@ -147,6 +147,22 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Storyboard(Base):
+    __tablename__ = "storyboards"
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    document_json: Mapped[dict] = mapped_column(JSON)
+
+
+class StoryTemplate(Base):
+    __tablename__ = "story_templates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    theme_json: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Transcript(Base):
     __tablename__ = "transcripts"
     __table_args__ = (UniqueConstraint("project_id", "version"),)

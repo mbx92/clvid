@@ -13,7 +13,8 @@ let controller: RemotionController | null = null
 let bridge: RemotionBridge | null = null
 let disposed = false
 const composition = computed<RemotionPreviewProps>(() => ({
-  cues: props.cues.map(({ start_ms, end_ms, text }) => ({ start_ms, end_ms, text })),
+  cues: props.cues.map(({ start_ms, end_ms, text, word_spans }) => ({ start_ms, end_ms, text,
+    ...(word_spans ? { word_spans: word_spans.map(span => ({ ...span })) } : {}) })),
   style: { ...subtitleDefaults, ...props.subtitleStyle, remotion_effects: remotionEffects(props.subtitleStyle.remotion_effects) },
   durationMs: props.durationMs, width: 1080, height: 1920, fps: 30,
   fontUrl: '/fonts/NotoSans-Regular.ttf',

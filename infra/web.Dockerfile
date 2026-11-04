@@ -14,6 +14,7 @@ COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci
 COPY apps/web/ ./
 COPY --from=remotion-build /workspace/services/remotion/dist/player.js ./public/remotion/player.js
+COPY --from=remotion-build /workspace/services/remotion/dist/story-player.js ./public/remotion/story-player.js
 COPY --from=remotion-build /workspace/services/remotion/dist/THIRD-PARTY-NOTICES.txt ./public/remotion/THIRD-PARTY-NOTICES.txt
 RUN npm run build
 

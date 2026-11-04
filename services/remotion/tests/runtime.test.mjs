@@ -5,6 +5,56 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {normalizeManifest, readManifest, isWithin} from '../server/manifest.mjs';
 import {parseRange, serveVideo} from '../server/media-server.mjs';
+import {readStoryManifest, validateStoryCaptions} from '../server/story-manifest.mjs';
+
+test('story caption manifest rejects overlapping, excessive, malformed and truncated timings', () => {
+  const shot = {duration_ms: 3000, caption_audio_id: 'voice', caption_narration: 'Awal. Akhir.',
+    captions: [{start_ms: 300, end_ms: 800, text: 'Awal.'}, {start_ms: 2200, end_ms: 2800, text: 'Akhir.'}]};
+  assert.doesNotThrow(() => validateStoryCaptions(shot));
+  assert.doesNotThrow(() => validateStoryCaptions({duration_ms: 3000}));
+  // Old source references are retained for the UI; playback disregards their timing.
+  assert.doesNotThrow(() => validateStoryCaptions({...shot, audio_id: 'new'}));
+  for (const mutation of [
+    x => {x.captions[0].start_ms = -1;},
+    x => {x.captions[0].start_ms = '300';},
+    x => {x.captions[0].end_ms = 300;},
+    x => {x.captions[1].start_ms = 799;},
+    x => {x.captions[1].end_ms = 3001;},
+    x => {x.captions[0].text = ' ';},
+    x => {x.captions[0].text = 'x'.repeat(201);},
+    x => {x.captions[0].html = '<b>x</b>';},
+    x => {x.captions = null;},
+    x => {x.captions = Array.from({length: 201}, (_, i) => ({start_ms: i, end_ms: i + 1, text: 'x'}));},
+    x => {x.duration_ms = 2000;},
+    x => {x.caption_audio_id = {};},
+    x => {x.caption_narration = 'x'.repeat(601);},
+  ]) assert.throws(() => {const changed = structuredClone(shot); mutation(changed); validateStoryCaptions(changed);}, /invalid_story_manifest/);
+});
+
+test('story manifest validates themes, durations, and confines all media to the job', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'story-manifest-'));
+  t.after(() => rm(root, {recursive: true, force: true}));
+  const file = path.join(root, 'story.json');
+  const m = {version:1,width:720,height:1280,fps:30,outputPath:path.join(root,'out.mp4'),assets:{},document:{
+    theme:{background:'#132923',foreground:'#ffffff',accent:'#ccff44',font:'sans',motion:'rise',align:'left',font_size:72,uppercase:false},
+    scenes:[{id:'one',layout:'title',duration_ms:1000,media_start_ms:0,show_caption:true,title:'Hello',text:'',narration:'',asset_id:null,audio_id:null}]}};
+  await writeFile(file, JSON.stringify(m));
+  assert.equal((await readStoryManifest(file)).durationMs, 1000);
+  for(const mutation of [
+    x => {x.document.theme.background = 'url(https://example.invalid)';},
+    x => {x.document.scenes[0].duration_ms = -1000;},
+    x => {x.outputPath = path.join(root,'..','outside.mp4');},
+    x => {x.document.scenes[0].asset_id = 'missing';},
+    x => {x.assets.bad = {kind:'image',mime:'image/png',path:'/etc/passwd'};},
+  ]) {
+    const invalid = structuredClone(m); mutation(invalid); await writeFile(file, JSON.stringify(invalid));
+    await assert.rejects(readStoryManifest(file), /invalid_story_manifest/);
+  }
+  const image = path.join(root,'image.png'); await writeFile(image, 'fixture');
+  const server = await serveVideo(image, 'image/png');
+  t.after(() => server.close());
+  assert.equal((await fetch(server.url)).headers.get('content-type'), 'image/png');
+});
 
 const valid = () => ({version: 1, videoPath: 'prepared/clip.mp4', outputPath: 'remotion.partial.mp4',
   width: 720, height: 1280, fps: 30, durationMs: 1000,
@@ -16,6 +66,25 @@ test('manifest strips unknown properties and accepts only local render inputs', 
   assert.equal(manifest.fontUrl, undefined);
   assert.equal(manifest.style.backgroundImage, undefined);
   assert.equal(manifest.style.animation_ms, 180);
+});
+
+test('podcast reference template is accepted for server rendering', () => {
+  const manifest = normalizeManifest({...valid(), style: {renderer: 'remotion', remotion_template: 'podcast',
+    bold: true, italic: true, uppercase: true, background: false, text_color: '#FFE600'}});
+  assert.equal(manifest.style.remotion_template, 'podcast');
+  assert.equal(manifest.style.italic, true);
+});
+
+test('manifest preserves word timing and rejects out-of-cue times, token ranges and overlaps', () => {
+  const span = {start_ms: 100, end_ms: 500, start_word: 0, end_word: 1};
+  const cue = {...valid().cues[0], text: 'hello world', word_spans: [span]};
+  assert.deepEqual(normalizeManifest({...valid(), cues: [cue]}).cues[0].word_spans, [span]);
+  for (const spans of [[{...span, start_ms: -1}], [{...span, end_ms: 1001}], [{...span, end_ms: 100}],
+    [{...span, start_word: -1}], [{...span, end_word: 3}], [{...span, end_word: 0}],
+    [span, {...span, start_ms: 400, end_ms: 700, start_word: 1, end_word: 2}],
+    [span, {...span, start_ms: 600, end_ms: 700}], new Array(2001).fill(span)]) {
+    assert.throws(() => normalizeManifest({...valid(), cues: [{...cue, word_spans: spans}]}), /invalid_manifest/);
+  }
 });
 test('manifest rejects invalid bounds, timestamps, CSS injection, network paths and traversal', () => {
   const changes = [{version: 2}, {fps: 60}, {width: 1080}, {durationMs: Infinity}, {durationMs: 1800001},
@@ -116,4 +185,14 @@ test('media server exposes one tokenized file, supports HEAD/ranges and rejects 
   assert.equal((await fetch(media.url, {method: 'POST'})).status, 405);
   await media.close();
   await assert.rejects(fetch(media.url));
+});
+import {validateStoryVisual} from '../server/story-manifest.mjs';
+
+test('story illustrations validate bounded recipes and reject arbitrary assets or code', () => {
+  const visual = {kind:'coffee_reveal',items:[],motion:'gentle',reveal_ms:2000};
+  assert.doesNotThrow(() => validateStoryVisual(visual));
+  assert.doesNotThrow(() => validateStoryVisual({...visual,kind:'steps',items:[{icon:'cup',label:'Seduh'}]}));
+  for (const change of [{kind:'photo'}, {url:'https://example.org'}, {reveal_ms:-1}, {motion:'script'}, {items:[{icon:'html',label:'x'}]}, {items:[{icon:'box',label:'x'.repeat(33)}]}]) {
+    assert.throws(() => validateStoryVisual({...visual,...change}), /invalid_story_manifest/);
+  }
 });

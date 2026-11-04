@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { tabsKeydown } from '~/utils/accessibility'
+import { repairSubtitles } from '~/utils/repair-subtitles'
 import { captionLayout, orderedCues } from '~/utils/subtitles'
-import { alignWords } from '~/utils/word-captions'
+import { alignHighlightWords, alignWords } from '~/utils/word-captions'
 import { captionAppearance, captionMotion } from '~/utils/subtitle-style'
 import { effectsError, retimeEffects } from '~/utils/remotion-effects'
 import { cropTracking, cropWithMode, cropWithTracking, trackingLabel, trackingOptions } from '~/utils/framing'
@@ -64,6 +65,8 @@ const subtitleError = ref('')
 const subtitleMessage = ref('')
 const subtitleResultPending = ref(false)
 const subtitleLanguage = ref('auto')
+const subtitleAudioOpen = ref(false)
+const replacesSubtitles = computed(() => !!clip.value?.revision.cues.length)
 const subtitleBusy = computed(() => subtitleSubmitting.value || subtitleLoading.value || !!subtitleJob.value && isActive(subtitleJob.value.status))
 const subtitleRequests = new Set<AbortController>()
 let subtitleDisposed = false
@@ -72,7 +75,12 @@ let subtitleExpectedRevision = 0
 let subtitleGeneration = 0
 let timingRequest = 0
 const alignedWords = computed(() => alignWords(draft.value?.cues || [], timingWords.value, draft.value?.start_ms || 0))
-const displayCues = computed(() => orderedCues(draft.value?.subtitle_style_json.display_mode === 'words' ? alignedWords.value.events : draft.value?.cues || []))
+const podcastTemplate = computed(() => draft.value?.subtitle_style_json.renderer === 'remotion' && draft.value?.subtitle_style_json.remotion_template === 'podcast')
+const highlightedWords = computed(() => alignHighlightWords(draft.value?.cues || [], timingWords.value, draft.value?.start_ms || 0))
+const missingWordTiming = computed(() => podcastTemplate.value ? highlightedWords.value.missing : alignedWords.value.missing)
+const podcastTimingError = computed(() => podcastTemplate.value && draft.value?.subtitle_style_json.enabled && (missingWordTiming.value || timingError.value)
+  ? 'Highlight kata belum memiliki timestamp yang cocok. Buat ulang subtitle dari suara, cocokkan teks dengan transkrip, atau pilih template lain.' : '')
+const displayCues = computed(() => orderedCues(podcastTemplate.value ? highlightedWords.value.cues : draft.value?.subtitle_style_json.display_mode === 'words' ? alignedWords.value.events : draft.value?.cues || []))
 const displayCue = computed(() => { const local = playhead.value - (draft.value?.start_ms || 0); return displayCues.value.find(cue => local >= cue.start_ms && local < cue.end_ms) })
 const activeCaption = computed(() => cueLayout(displayCue.value?.text || ''))
 watch(() => [draft.value?.start_ms, draft.value?.end_ms], async () => {
@@ -91,6 +99,24 @@ watch(() => [draft.value?.start_ms, draft.value?.end_ms], async () => {
 const captionStyle = computed(() => draft.value ? captionAppearance(draft.value.subtitle_style_json) : {})
 const captionAnimation = computed(() => draft.value && displayCue.value ? captionMotion(draft.value.subtitle_style_json, playhead.value - draft.value.start_ms - displayCue.value.start_ms, displayCue.value.end_ms - displayCue.value.start_ms) : {})
 const oversizedCues = computed(() => draft.value?.subtitle_style_json.enabled ? displayCues.value.filter(cue => cueLayout(cue.text).tooLong).length : 0)
+const subtitleRepair = ref<ReturnType<typeof repairSubtitles> | null>(null)
+const repairBase = ref('')
+function proposeSubtitleRepair() {
+  if (!draft.value || saving.value) return
+  try {
+    subtitleRepair.value = repairSubtitles(draft.value.cues, draft.value.subtitle_style_json, timingWords.value, draft.value.start_ms)
+    repairBase.value = JSON.stringify(draft.value)
+    exportOpen.value = false
+  } catch (e) {error.value = errorMessage(e)}
+}
+function applySubtitleRepair() {
+  if (!draft.value || !subtitleRepair.value || saving.value || JSON.stringify(draft.value) !== repairBase.value) return
+  const result = subtitleRepair.value
+  draft.value.cues = result.cues
+  draft.value.subtitle_style_json = result.style
+  subtitleRepair.value = null; exportError.value = ''; tab.value = 'subtitle'
+  subtitleMessage.value = 'Ukuran subtitle telah disesuaikan' + (result.splitCount ? ` dan ${result.splitCount} cue panjang dipecah` : '') + '. Tinjau preview lalu simpan perubahan.'
+}
 const enlarged = computed(() => { const metadata = clip.value?.source_asset?.metadata; return metadata && Number(metadata.display_width || metadata.width) < resolution.value })
 const style = computed(() => draft.value?.subtitle_style_json)
 const tracking = computed<TrackingMode>({
@@ -129,6 +155,14 @@ const videoPosition = computed(() => {
 })
 const subtitlePosition = computed(() => style.value?.position === 'top' ? { top: `${style.value.safe_margin * 100}%` } : { bottom: `${(style.value?.safe_margin || 0.15) * 100}%` })
 const adopt = (value: Clip) => { clip.value = value; draft.value = JSON.parse(JSON.stringify(value.revision)); timingWords.value = value.revision.source_words || []; saved.value = JSON.stringify(draft.value); startInput.value = timecode(value.revision.start_ms, true); endInput.value = timecode(value.revision.end_ms, true); saveState.value = 'Tersimpan'; playhead.value = value.revision.start_ms; subtitleResultPending.value = false }
+function applyTranslation(cues: Cue[], revision: number) {
+  if (!draft.value || !clip.value || dirty.value || saving.value || subtitleBusy.value || clip.value.revision.revision !== revision) return
+  draft.value.cues = cues
+  draft.value.subtitle_style_json = { ...draft.value.subtitle_style_json, enabled: true, display_mode: 'sentence',
+    ...(draft.value.subtitle_style_json.remotion_template === 'podcast' ? {remotion_template: 'minimal' as const} : {}) }
+  subtitleMessage.value = 'Terjemahan diterapkan ke draft. Simpan untuk memakai subtitle Indonesia pada ekspor MP4 dan SRT.'
+  tab.value = 'subtitle'
+}
 const load = async () => { try { const result = await api<Clip>(`/clips/${route.params.id}`); adopt(result); await loadExports(); error.value = '' } catch (e) { error.value = errorMessage(e) } finally { loading.value = false } }
 const loadExports = async () => { if (clip.value) await exportList.refresh() }
 onMounted(load)
@@ -158,8 +192,14 @@ const acceptSubtitleJob = async (job: Job) => {
     if (!controller.signal.aborted) { subtitleError.value = errorMessage(e); subtitleResultPending.value = true }
   } finally { subtitleRequests.delete(controller); subtitleLoading.value = false }
 }
-const generateSubtitles = async () => {
-  if (!clip.value || !draft.value || dirty.value || saving.value || subtitleBusy.value || draft.value.cues.length || clip.value.revision.cues.length) return
+const generateSubtitles = async (replaceExisting = false) => {
+  if (!clip.value || !draft.value || dirty.value || saving.value || subtitleBusy.value) return
+  if (!replaceExisting && (draft.value.cues.length || clip.value.revision.cues.length)) {
+    subtitleAudioOpen.value = true
+    return
+  }
+  subtitleAudioOpen.value = false
+  tab.value = 'subtitle'
   const generation = ++subtitleGeneration
   subtitleSubmitting.value = true
   subtitleJob.value = null
@@ -170,7 +210,7 @@ const generateSubtitles = async () => {
   try {
     const job = await api<Job>(`/clips/${clip.value.id}/subtitles/generate`, {
       method: 'POST', signal: controller.signal, headers: { 'Idempotency-Key': idempotencyKey() },
-      body: { expected_revision: subtitleExpectedRevision, language: subtitleLanguage.value },
+      body: { expected_revision: subtitleExpectedRevision, language: subtitleLanguage.value, ...(replaceExisting ? { replace_existing: true } : {}) },
     })
     if (generation === subtitleGeneration) await acceptSubtitleJob(job)
   } catch (e) { if (!controller.signal.aborted && generation === subtitleGeneration) subtitleError.value = errorMessage(e) }
@@ -276,7 +316,7 @@ const addCue = () => { if (!draft.value) return; const start = Math.max(0, Math.
 const cueTime = (cue: Cue, edge: 'start_ms' | 'end_ms', event: Event) => { const value = parseTimecode((event.target as HTMLInputElement).value); if (value !== null) cue[edge] = value; else { error.value = 'Format waktu subtitle tidak valid. Gunakan mm:ss.mmm.'; (event.target as HTMLInputElement).value = timecode(cue[edge], true) } }
 const startExport = async () => {
   if (!clip.value) return
-  if (oversizedCues.value) { exportError.value = 'Teks subtitle terlalu panjang pada ukuran ini. Pecah cue atau kecilkan ukuran. Pecah cue secara manual atau pendekkan teks.'; return }
+  if (oversizedCues.value) { exportError.value = 'Ada subtitle terlalu panjang. Gunakan Sesuaikan subtitle, lalu simpan sebelum ekspor.'; return }
   exportBusy.value = true; exportError.value = ''
   try { await api(`/clips/${clip.value.id}/exports`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: { revision: clip.value.revision.revision, resolution: resolution.value } }); exportOpen.value = false; tab.value = 'exports'; await loadExports() } catch (e) { exportError.value = errorMessage(e) } finally { exportBusy.value = false }
 }
@@ -298,21 +338,26 @@ const exportClick = () => { exportError.value = ''; exportOpen.value = true }
         </section>
         <aside class="editor-panel"><div class="tabs" role="tablist" @keydown="tabsKeydown" aria-label="Panel editor"><button id="editor-tab-subtitle" class="tab" :class="{ active: tab === 'subtitle' }" role="tab" :aria-selected="tab === 'subtitle'" aria-controls="editor-panel-content" @click="tab = 'subtitle'">Subtitle <span class="tab-count">{{ draft.cues.length }}</span></button><button id="editor-tab-style" class="tab" :class="{ active: tab === 'style' }" role="tab" :aria-selected="tab === 'style'" aria-controls="editor-panel-content" @click="tab = 'style'">Tampilan</button><button id="editor-tab-timeline" class="tab" :class="{ active: tab === 'timeline' }" role="tab" :aria-selected="tab === 'timeline'" aria-controls="editor-panel-content" @click="tab = 'timeline'">Timeline</button><button id="editor-tab-exports" class="tab" :class="{ active: tab === 'exports' }" role="tab" :aria-selected="tab === 'exports'" aria-controls="editor-panel-content" @click="tab = 'exports'">Ekspor</button></div>
           <div id="editor-panel-content" class="editor-panel-content" role="tabpanel" :aria-labelledby="`editor-tab-${tab}`">
-            <div v-if="tab === 'subtitle'" class="subtitle-editor"><div class="panel-intro"><p>Edit teks dan waktu subtitle pada klip ini.</p><span class="muted small">Waktu dihitung dari awal klip. Transkrip sumber tetap tersimpan.</span></div><p v-if="oversizedCues" class="notice">{{ oversizedCues }} cue terlalu panjang pada ukuran ini. Pecah cue, kecilkan ukuran, atau aktifkan ukuran otomatis sebelum ekspor.</p><div v-if="!draft.cues.length" class="empty-state compact">
-                <AppIcon name="FileText" :size="24" /><h2>Belum ada subtitle</h2>
-                <p>Buat subtitle dari ucapan pada rentang klip ini dengan memeriksa audionya. Jika hanya ada musik atau suara pertarungan, hasilnya bisa tetap kosong.</p>
-                <label>Bahasa ucapan<AppSelect v-model="subtitleLanguage" label="Bahasa subtitle dari audio" :options="[{ value: 'auto', label: 'Deteksi otomatis' }, { value: 'id', label: 'Bahasa Indonesia' }, { value: 'en', label: 'English' }]" /></label>
-                <button class="button secondary" :disabled="dirty || saving || subtitleBusy || !!clip.revision.cues.length" @click="generateSubtitles">{{ subtitleSubmitting ? 'Mengantrekan subtitle...' : 'Buat subtitle dari audio' }}</button>
-                <p v-if="dirty" class="muted small">Simpan perubahan terlebih dahulu untuk memproses rentang klip yang tersimpan.</p>
-                <p class="muted small">Anda juga dapat menambahkan subtitle secara manual.</p>
+            <SubtitleTranslate v-show="tab === 'subtitle' || tab === 'timeline'" :clip-id="clip.id" :revision="clip.revision.revision" :cues="clip.revision.cues" :disabled="dirty || saving || subtitleBusy" :available="clip.translation_available" @apply="applyTranslation" />
+            <div v-if="tab === 'subtitle'" class="subtitle-editor">
+              <div class="subtitle-toolbar">
+                <div><h2>Teks subtitle</h2><p>Edit teks dan waktu pada klip ini.</p></div>
+                <button class="button secondary small-button" aria-label="Buat subtitle dari audio" :disabled="dirty || saving || subtitleBusy" @click="subtitleAudioOpen = true"><AppIcon :name="subtitleBusy ? 'Clock3' : 'FileText'" :size="16" />{{ subtitleBusy ? 'Memproses' : 'Dari audio' }}</button>
+              </div>
+              <p v-if="dirty" class="subtitle-save-hint"><AppIcon name="CircleAlert" :size="14" /><span>Simpan perubahan terlebih dahulu untuk membuat subtitle dari audio.</span></p>
+              <div v-if="oversizedCues" class="notice subtitle-fit-notice"><span>{{ oversizedCues }} subtitle terlalu panjang pada ukuran ini.</span><button class="button secondary small-button" :disabled="saving" @click="proposeSubtitleRepair">Sesuaikan subtitle</button></div>
+              <div v-if="!draft.cues.length" class="subtitle-empty">
+                <span class="subtitle-empty-icon"><AppIcon name="FileText" :size="24" /></span>
+                <h2>Belum ada subtitle</h2>
+                <p>Gunakan <strong>Dari audio</strong> untuk mengenali ucapan, atau tambahkan teks secara manual.</p>
               </div>
               <div v-if="subtitleJob || subtitleError || subtitleMessage" class="subtitle-recovery-status" aria-live="polite">
                 <JobStatus v-if="subtitleJob && subtitleJob.status !== 'succeeded'" :job="subtitleJob" @refresh="acceptSubtitleAction" />
                 <p v-if="subtitleMessage" class="notice" role="status">{{ subtitleMessage }}</p>
                 <p v-if="subtitleResultPending" class="notice">Subtitle selesai, tetapi editor memiliki perubahan lain. Perubahan Anda tetap dipertahankan. <button class="text-button" @click="conflictOpen = true">Tinjau revisi terbaru</button></p>
                 <InlineError :message="subtitleError" />
-              </div><ScrollList :items="draft.cues" label="subtitle" v-slot="{ items, start }"><article v-for="(cue, offset) in items" :key="(start + offset)" class="cue-row" :class="{ 'cue-active': activeCue === cue }"><div class="cue-top"><button class="cue-number text-button" :aria-label="`Putar subtitle ${(start + offset) + 1}`" @click="seek(draft.start_ms + cue.start_ms)">{{ String((start + offset) + 1).padStart(2, '0') }}</button><label class="sr-only" :for="`cue-start-${(start + offset)}`">Mulai subtitle {{ (start + offset) + 1 }}</label><input :id="`cue-start-${(start + offset)}`" class="timecode cue-time" :value="timecode(cue.start_ms, true)" @change="cueTime(cue, 'start_ms', $event)" /><span class="muted">–</span><label class="sr-only" :for="`cue-end-${(start + offset)}`">Akhir subtitle {{ (start + offset) + 1 }}</label><input :id="`cue-end-${(start + offset)}`" class="timecode cue-time" :value="timecode(cue.end_ms, true)" @change="cueTime(cue, 'end_ms', $event)" /><button class="icon-button" :aria-label="`Hapus subtitle ${(start + offset) + 1}`" @click="draft.cues.splice((start + offset), 1)"><AppIcon name="X" :size="15" /></button></div><label class="sr-only" :for="`cue-text-${(start + offset)}`">Teks subtitle {{ (start + offset) + 1 }}</label><textarea :id="`cue-text-${(start + offset)}`" v-model="cue.text" rows="2" maxlength="2000" /><p v-if="draft.subtitle_style_json.display_mode !== 'words' && cueLayout(cue.text).tooLong" class="error-text">Teks subtitle terlalu panjang pada ukuran ini. Pecah cue atau kecilkan ukuran.</p></article></ScrollList><button class="button secondary add-cue" @click="addCue"><AppIcon name="Plus" :size="16" />Tambah subtitle</button></div>
-            <DesktopFit v-if="tab === 'style'" :fit="styleTab !== 'effects'"><div class="style-editor"><div class="tool-tabs" role="group" aria-label="Pengaturan tampilan"><button :aria-pressed="styleTab === 'framing'" @click="styleTab = 'framing'">Framing</button><button :aria-pressed="styleTab === 'caption'" @click="styleTab = 'caption'">Gaya subtitle</button><button :aria-pressed="styleTab === 'effects'" @click="styleTab = 'effects'">Efek video</button></div><section v-show="styleTab === 'framing'" class="settings-group"><h2 class="sr-only">Framing</h2>
+              </div><ScrollList :items="draft.cues" label="subtitle" v-slot="{ items, start }"><article v-for="(cue, offset) in items" :key="(start + offset)" class="cue-row" :class="{ 'cue-active': activeCue === cue }"><div class="cue-top"><button class="cue-number text-button" :aria-label="`Putar subtitle ${(start + offset) + 1}`" @click="seek(draft.start_ms + cue.start_ms)">{{ String((start + offset) + 1).padStart(2, '0') }}</button><label class="sr-only" :for="`cue-start-${(start + offset)}`">Mulai subtitle {{ (start + offset) + 1 }}</label><input :id="`cue-start-${(start + offset)}`" class="timecode cue-time" :value="timecode(cue.start_ms, true)" @change="cueTime(cue, 'start_ms', $event)" /><span class="muted">–</span><label class="sr-only" :for="`cue-end-${(start + offset)}`">Akhir subtitle {{ (start + offset) + 1 }}</label><input :id="`cue-end-${(start + offset)}`" class="timecode cue-time" :value="timecode(cue.end_ms, true)" @change="cueTime(cue, 'end_ms', $event)" /><button class="icon-button" :aria-label="`Hapus subtitle ${(start + offset) + 1}`" @click="draft.cues.splice((start + offset), 1)"><AppIcon name="X" :size="15" /></button></div><label class="sr-only" :for="`cue-text-${(start + offset)}`">Teks subtitle {{ (start + offset) + 1 }}</label><textarea :id="`cue-text-${(start + offset)}`" v-model="cue.text" rows="2" maxlength="2000" /><p v-if="draft.subtitle_style_json.display_mode !== 'words' && cueLayout(cue.text).tooLong" class="error-text">Teks terlalu panjang. Gunakan Sesuaikan subtitle di atas atau pendekkan teks ini.</p></article></ScrollList><button class="button secondary add-cue" @click="addCue"><AppIcon name="Plus" :size="16" />Tambah subtitle</button></div>
+            <DesktopFit v-if="tab === 'style'" :fit="styleTab === 'framing'"><div class="style-editor"><div class="tool-tabs" role="group" aria-label="Pengaturan tampilan"><button :aria-pressed="styleTab === 'framing'" @click="styleTab = 'framing'">Framing</button><button :aria-pressed="styleTab === 'caption'" @click="styleTab = 'caption'">Gaya subtitle</button><button :aria-pressed="styleTab === 'effects'" @click="styleTab = 'effects'">Efek video</button></div><section v-show="styleTab === 'framing'" class="settings-group"><h2 class="sr-only">Framing</h2>
               <label>Mode video<AppSelect v-model="framingMode" label="Mode framing" :options="[{ value: 'fill', label: 'Isi frame (crop)' }, { value: 'fit', label: 'Tampilkan seluruh video' }, { value: 'gaming', label: GAMING_LABEL }]" /></label>
               <template v-if="framingMode === 'fill'">
                 <label>Pelacakan<AppSelect v-model="tracking" label="Pelacakan frame" :options="trackingOptions" /></label>
@@ -339,20 +384,72 @@ const exportClick = () => { exportError.value = ''; exportOpen.value = true }
                 <button class="text-button" @click="draft.crop_json.x = 0.5; draft.crop_json.y = 0.5">Kembalikan ke tengah</button>
               </template>
               <GamingSettings v-else-if="framingMode === 'gaming'" ref="gamingSettings" v-model="gaming" :video="video" />
-              <p v-else class="muted small">Seluruh video ditampilkan tanpa crop. Pelacakan tersedia pada mode Isi frame.</p></section><section v-show="styleTab === 'caption'" class="settings-group"><h2 class="sr-only">Subtitle</h2><SubtitleSettings v-model="draft.subtitle_style_json" :effective-size="activeCaption.fontSize" :oversized-cues="oversizedCues" :missing-timing="alignedWords.missing" :timing-error="timingError" /></section><section v-if="styleTab === 'effects'" class="settings-group"><h2 class="sr-only">Efek video</h2><RemotionEffectsSettings v-model="draft.subtitle_style_json" :duration-ms="clipDuration" :time-ms="playhead - draft.start_ms" @seek="seek(draft.start_ms + $event)" @timeline="tab = 'timeline'" /></section></div></DesktopFit>
+              <p v-else class="muted small">Seluruh video ditampilkan tanpa crop. Pelacakan tersedia pada mode Isi frame.</p></section><section v-show="styleTab === 'caption'" class="settings-group"><h2 class="sr-only">Subtitle</h2><SubtitleSettings v-model="draft.subtitle_style_json" :effective-size="activeCaption.fontSize" :oversized-cues="oversizedCues" :missing-timing="missingWordTiming" :timing-error="timingError" @repair="proposeSubtitleRepair" /></section><section v-if="styleTab === 'effects'" class="settings-group"><h2 class="sr-only">Efek video</h2><RemotionEffectsSettings v-model="draft.subtitle_style_json" :duration-ms="clipDuration" :time-ms="playhead - draft.start_ms" @seek="seek(draft.start_ms + $event)" @timeline="tab = 'timeline'" /></section></div></DesktopFit>
+            <div v-if="tab === 'timeline'" class="subtitle-toolbar timeline-audio-toolbar"><div><h2>Subtitle dari audio</h2><p>Gunakan rentang klip yang tersimpan.</p></div><button class="button secondary small-button" aria-label="Buat subtitle dari audio" :disabled="dirty || saving || subtitleBusy" @click="subtitleAudioOpen = true"><AppIcon name="FileText" :size="16" />Dari audio</button></div>
+            <p v-if="tab === 'timeline' && dirty" class="subtitle-save-hint">Simpan perubahan terlebih dahulu untuk membuat subtitle dari audio.</p>
             <ClipTimeline v-if="tab === 'timeline'" v-model:cues="draft.cues" :effects="draft.subtitle_style_json.remotion_effects" :remotion="draft.subtitle_style_json.renderer === 'remotion'" :duration-ms="clipDuration" :start-ms="draft.start_ms" :end-ms="draft.end_ms" :source-duration-ms="sourceDuration" :time-ms="playhead - draft.start_ms" :max-clip-ms="maxClipMs" @update:effects="updateEffects" @seek="seek(draft.start_ms + $event)" @bounds="timelineBounds" @enable-remotion="draft.subtitle_style_json = { ...draft.subtitle_style_json, renderer: 'remotion' }" /><template v-if="tab === 'exports'"><ExportList :exports="exports" :current-revision="clip.revision.revision" @refresh="loadExports" /><LoadMore :loaded="exports.length" :total="exportTotal" :loading="exportsLoading" :has-more="moreExports" label="hasil ekspor klip ini" button-label="Muat ekspor sebelumnya" @more="exportList.loadMore().catch(e => error = errorMessage(e))" /></template>
           </div>
         </aside>
       </div>
     </template>
+    <AppDialog :open="subtitleAudioOpen" :title="replacesSubtitles ? 'Buat ulang subtitle dari audio?' : 'Buat subtitle dari audio'" description="Kenali ucapan dan waktu tiap kata pada rentang klip ini." :busy="subtitleBusy" @close="subtitleAudioOpen = false">
+      <div class="audio-dialog-content">
+        <div class="audio-clip-range"><span><AppIcon name="Scissors" :size="16" />Rentang tersimpan</span><strong class="timecode">{{ timecode(clip?.revision.start_ms || 0, true) }} &ndash; {{ timecode(clip?.revision.end_ms || 0, true) }}</strong></div>
+        <label class="audio-language">Bahasa ucapan<AppSelect v-model="subtitleLanguage" label="Bahasa subtitle dari audio" :options="[{ value: 'auto', label: 'Deteksi otomatis' }, { value: 'id', label: 'Bahasa Indonesia' }, { value: 'en', label: 'English' }]" /></label>
+        <p v-if="replacesSubtitles" class="notice audio-replace-notice"><strong>Subtitle lama akan diganti.</strong> Termasuk koreksi teks dan waktu yang sudah Anda buat. Jika ucapan tidak terdeteksi, subtitle lama tetap dipertahankan.</p>
+        <p v-else class="muted small">Audio tanpa ucapan dapat menghasilkan subtitle kosong. Teks hasil pengenalan bisa Anda edit setelah proses selesai.</p>
+        <p v-if="dirty" class="notice">Simpan perubahan terlebih dahulu untuk memproses rentang terbaru.</p>
+      </div>
+      <div class="dialog-actions"><button class="button secondary" :disabled="subtitleBusy" @click="subtitleAudioOpen = false">Batal</button><button class="button primary" :disabled="dirty || saving || subtitleBusy" @click="generateSubtitles(replacesSubtitles)"><AppIcon name="FileText" :size="16" />{{ replacesSubtitles ? 'Ganti subtitle dari audio' : 'Mulai buat subtitle' }}</button></div>
+    </AppDialog>
+    <AppDialog :open="!!subtitleRepair" title="Sesuaikan subtitle" description="Teks tetap utuh. Perubahan diterapkan ke draft sebelum disimpan." @close="subtitleRepair = null">
+      <div v-if="subtitleRepair" class="form-stack">
+        <p>Ukuran otomatis akan diaktifkan. {{ subtitleRepair.splitCount ? `${subtitleRepair.splitCount} cue panjang dipecah menjadi beberapa bagian.` : 'Semua cue dapat ditampilkan tanpa mengubah waktu.' }}</p>
+        <p v-if="subtitleRepair.estimatedCount" class="notice">{{ subtitleRepair.estimatedCount }} cue tidak memiliki timing kata yang cocok. Waktu bagian baru diperkirakan secara proporsional dalam rentang cue asli. Tinjau hasilnya di timeline.</p>
+        <p v-else-if="subtitleRepair.splitCount" class="muted small">Pemisahan mengikuti timing kata asli. Awal dan akhir cue tetap berada dalam rentang semula.</p>
+        <p v-if="subtitleRepair.fallback" class="notice">Mode kata per kata dialihkan ke kalimat. Jika memakai Podcast, template beralih ke Minimal karena timing kata tidak tersedia.</p>
+        <p v-if="subtitleRepair.unresolved" class="error-text">{{ subtitleRepair.unresolved }} cue masih perlu dipendekkan manual karena memiliki kata terlalu panjang atau durasi terlalu singkat.</p>
+        <p>{{ draft?.cues.length }} cue menjadi {{ subtitleRepair.cues.length }} cue</p>
+        <div class="subtitle-fit-preview"><p v-for="(cue,i) in subtitleRepair.cues.slice(0,6)" :key="i"><small class="timecode">{{ timecode(cue.start_ms,true) }} &ndash; {{ timecode(cue.end_ms,true) }}</small><br/>{{ cue.text }}</p><p v-if="subtitleRepair.cues.length > 6" class="muted small">{{ subtitleRepair.cues.length - 6 }} cue lainnya dapat ditinjau setelah diterapkan.</p></div>
+        <div class="dialog-actions"><button class="button secondary" @click="subtitleRepair = null">Batal</button><button class="button primary" :disabled="saving || JSON.stringify(draft) !== repairBase" @click="applySubtitleRepair">Terapkan penyesuaian</button></div>
+      </div>
+    </AppDialog>
     <AppDialog :open="previewHelp" title="Panduan preview" @close="previewHelp = false"><p>Preview mengikuti posisi playback sumber. Batas Masuk dan Keluar menentukan potongan hasil ekspor.</p><p>Untuk pelacakan wajah atau pembicara, jalankan Analisis preview setelah mengubah pengaturan. Mode Gaming langsung menampilkan dua area sumber.</p><p>Periksa MP4 akhir untuk tampilan subtitle dan timing hasil render.</p><div class="dialog-actions"><button class="button primary" @click="previewHelp = false">Tutup</button></div></AppDialog>
-    <AppDialog :open="exportOpen" title="Ekspor klip" :description="`Render menggunakan revisi ${clip?.revision.revision} yang tersimpan.`" :busy="exportBusy" @close="exportOpen = false"><div class="form-stack"><p v-if="dirty" class="notice">Ada perubahan yang belum tersimpan. Simpan dahulu agar perubahan masuk ke hasil ekspor.</p><label>Resolusi<AppSelect v-model="resolution" label="Resolusi ekspor" :options="[{ value: 1080, label: '1080 × 1920 · 30 fps' }, { value: 720, label: '720 × 1280 · 30 fps' }]" /></label><p class="muted small">Framing: {{ framingMode === 'gaming' ? GAMING_LABEL : framingMode === 'fit' ? 'Tampilkan seluruh video' : trackingLabel(tracking) }}.<span v-if="tracking !== 'static'"> {{ trackingReady ? 'Analisis preview yang cocok dipakai kembali saat render.' : 'Pelacakan dianalisis saat render jika belum ada hasil yang cocok.' }} Tinjau MP4 final.</span></p><p class="muted small">MP4 H.264/AAC dan subtitle SRT. Subtitle SRT tetap tersedia meskipun burn-in dinonaktifkan.</p><p v-if="enlarged" class="notice">Sumber beresolusi lebih kecil. Video akan diperbesar tanpa menambah detail.</p><p v-if="oversizedCues" class="notice">Teks subtitle terlalu panjang pada ukuran ini. Pecah cue atau kecilkan ukuran. Pecah cue secara manual atau pendekkan teks.</p><InlineError :message="exportError" /><div class="dialog-actions"><button class="button secondary" :disabled="exportBusy" @click="exportOpen = false">Batal</button><button v-if="dirty" class="button primary" :disabled="saving || !!draftEffectsError" @click="save().then(ok => { if (!ok) exportOpen = false })">Simpan perubahan</button><button v-else class="button primary" :disabled="exportBusy || !!oversizedCues" @click="startExport">{{ exportBusy ? 'Mengantrekan render…' : 'Mulai ekspor' }}</button></div></div></AppDialog>
+    <AppDialog :open="exportOpen" title="Ekspor klip" :description="`Render menggunakan revisi ${clip?.revision.revision} yang tersimpan.`" :busy="exportBusy" @close="exportOpen = false"><div class="form-stack"><p v-if="dirty" class="notice">Ada perubahan yang belum tersimpan. Simpan dahulu agar perubahan masuk ke hasil ekspor.</p><label>Resolusi<AppSelect v-model="resolution" label="Resolusi ekspor" :options="[{ value: 1080, label: '1080 × 1920 · 30 fps' }, { value: 720, label: '720 × 1280 · 30 fps' }]" /></label><p class="muted small">Framing: {{ framingMode === 'gaming' ? GAMING_LABEL : framingMode === 'fit' ? 'Tampilkan seluruh video' : trackingLabel(tracking) }}.<span v-if="tracking !== 'static'"> {{ trackingReady ? 'Analisis preview yang cocok dipakai kembali saat render.' : 'Pelacakan dianalisis saat render jika belum ada hasil yang cocok.' }} Tinjau MP4 final.</span></p><p class="muted small">MP4 H.264/AAC dan subtitle SRT. Subtitle SRT tetap tersedia meskipun burn-in dinonaktifkan.</p><p v-if="enlarged" class="notice">Sumber beresolusi lebih kecil. Video akan diperbesar tanpa menambah detail.</p><div v-if="oversizedCues" class="notice subtitle-fit-notice"><span>Ada subtitle yang perlu disesuaikan agar muat.</span><button class="button secondary small-button" @click="proposeSubtitleRepair">Sesuaikan subtitle</button></div><InlineError :message="exportError || podcastTimingError" /><div class="dialog-actions"><button class="button secondary" :disabled="exportBusy" @click="exportOpen = false">Batal</button><button v-if="dirty" class="button primary" :disabled="saving || !!draftEffectsError" @click="save().then(ok => { if (!ok) exportOpen = false })">Simpan perubahan</button><button v-else class="button primary" :disabled="exportBusy || !!oversizedCues || !!podcastTimingError" @click="startExport">{{ exportBusy ? 'Mengantrekan render…' : 'Mulai ekspor' }}</button></div></div></AppDialog>
     <AppDialog :open="conflictOpen" title="Revisi sudah berubah" description="Klip memiliki revisi tersimpan yang lebih baru. Perubahan Anda masih ada di editor ini. Muat revisi terbaru untuk menggantinya atau kembali untuk menyalin koreksi terlebih dahulu." @close="conflictOpen = false"><div class="dialog-actions"><button class="button secondary" @click="conflictOpen = false">Kembali ke perubahan saya</button><button class="button primary" @click="conflictOpen = false; load()">Muat revisi terbaru</button></div></AppDialog>
     <AppDialog :open="trimOpen" title="Sesuaikan subtitle dengan batas baru?" :description="`${trimLoss} cue berada di luar batas baru dan tidak akan masuk revisi ini. Teks cue yang masih berada di dalam klip dipertahankan, dan waktunya disesuaikan.`" @close="trimOpen = false"><div class="dialog-actions"><button class="button secondary" @click="trimOpen = false; startInput = timecode(draft?.start_ms, true); endInput = timecode(draft?.end_ms, true)">Batal</button><button class="button primary" @click="pendingBounds && applyBounds(pendingBounds.start, pendingBounds.end)">Terapkan batas dan cue</button></div></AppDialog>
     <AppDialog :open="leaveOpen" title="Perubahan belum tersimpan" description="Simpan perubahan sebelum meninggalkan editor atau lanjutkan tanpa menyimpannya." :busy="saving" @close="leaveOpen = false"><div class="dialog-actions"><button class="button secondary" :disabled="saving" @click="discardLeave">Tinggalkan perubahan</button><button class="button primary" :disabled="saving" @click="saveAndLeave">Simpan dan lanjutkan</button></div></AppDialog>
   </div>
 </template>
 <style scoped>
+.subtitle-fit-notice { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+.subtitle-fit-preview { max-height:240px; overflow:auto; overflow-wrap:anywhere; }
+.subtitle-fit-preview p { padding:8px 0; border-bottom:1px solid #e4e8e1; margin:0; }
 .framing-preview { position: absolute; inset: 0; }
 .editor-panel > .tabs { gap: 14px; }
+.subtitle-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #e8ebe4; flex: none; }
+.subtitle-toolbar h2 { font-size: 13px; line-height: 1.4; margin: 0; }
+.subtitle-toolbar p { font-size: 11px; color: #748078; margin: 4px 0 0; }
+.subtitle-toolbar .button { flex: none; min-height: 36px; }
+.subtitle-save-hint { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 10px 16px; background: #f7f4ec; color: #6d5a36; font-size: 11px; line-height: 1.5; flex: none; }
+.subtitle-save-hint svg { flex: none; margin-top: 1px; }
+.subtitle-empty { padding: 28px 24px; text-align: center; flex: none; }
+.subtitle-empty-icon { display: inline-flex; padding: 12px; margin-bottom: 12px; border-radius: 12px; background: #edf1f0; color: #507264; }
+.subtitle-empty h2 { font-size: 15px; margin: 0 0 8px; }
+.subtitle-empty p { max-width: 280px; margin: 0 auto; font-size: 12px; line-height: 1.7; color: #748078; }
+.subtitle-recovery-status { flex: none; max-height: 35%; overflow-y: auto; padding: 10px 16px; border-bottom: 1px solid #e8ebe4; }
+.subtitle-recovery-status :deep(.job-row) { padding: 8px 0; }
+.subtitle-recovery-status .notice { margin: 0; }
+.audio-dialog-content { display: grid; gap: 18px; margin-top: 20px; }
+.audio-clip-range { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 14px; border: 1px solid #e0e7e2; border-radius: 8px; background: #f4f7f5; font-size: 12px; }
+.audio-clip-range > span { display: inline-flex; align-items: center; gap: 8px; color: #65746b; }
+.audio-clip-range strong { font-size: 12px; white-space: nowrap; }
+.audio-language { display: grid; gap: 8px; margin: 0; }
+.audio-dialog-content p { margin: 0; }
+.audio-replace-notice strong { display: block; margin-bottom: 3px; }
+@media (max-width: 760px) {
+  .subtitle-toolbar { padding: 12px 14px; gap: 8px; }
+  .subtitle-empty { padding: 24px 20px; }
+  .audio-clip-range { align-items: flex-start; flex-direction: column; }
+}
 </style>

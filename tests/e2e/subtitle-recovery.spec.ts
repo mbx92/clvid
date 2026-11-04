@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 // All API responses are mocked: these checks never queue a real transcription
 // or modify an existing clip, and work without local login credentials.
-async function emptyClip(page: Page) {
+async function emptyClip(page: Page, existing = false) {
   let clip: any = {
     id: 'recovery-clip', project_id: 'recovery-project', origin: 'ai', created_at: '2026-11-03T00:00:00Z',
     media_duration_ms: 60000,
@@ -10,13 +10,17 @@ async function emptyClip(page: Page) {
       reason: '', crop_json: { mode: 'fit', x: .5, y: .5 }, cues: [], source_words: [],
       subtitle_style_json: { enabled: true, display_mode: 'words', font_size: 52, position: 'bottom', background: true, safe_margin: .15 } },
   }
+  if (existing) {
+    clip.origin = 'manual'
+    clip.revision.cues = [{ start_ms: 0, end_ms: 1200, text: 'Koreksi saya' }]
+  }
   const job: any = { id: 'recovery-job', project_id: clip.project_id, kind: 'subtitle_generate', stage: 'subtitle_generate', status: 'queued', progress: null }
   let submitted: any
   let polls = 0
   let heldPoll: { started: () => void; pending: Promise<void> } | null = null
   await page.route('**/api/v1/**', async route => {
     const path = new URL(route.request().url()).pathname
-    if (path === '/api/v1/auth/me') return route.fulfill({ json: { id: 'test-user', email: 'test@example.invalid', csrf_token: 'test-token' } })
+    if (path === '/api/v1/auth/me') return route.fulfill({ headers: { 'Set-Cookie': 'clipper_csrf=test-token; Path=/; SameSite=Lax' }, json: { id: 'test-user', email: 'test@example.invalid', csrf_token: 'test-token' } })
     if (path === `/api/v1/clips/${clip.id}`) {
       if (route.request().method() === 'PATCH') {
         const body = route.request().postDataJSON()
@@ -44,7 +48,7 @@ async function emptyClip(page: Page) {
   })
   await page.setViewportSize({ width: 1366, height: 900 })
   await page.goto(`/clips/${clip.id}`)
-  await expect(page.getByRole('heading', { name: 'Belum ada subtitle', exact: true })).toBeVisible()
+  if (!existing) await expect(page.getByRole('heading', { name: 'Belum ada subtitle', exact: true })).toBeVisible()
   return {
     submitted: () => submitted,
     polls: () => polls,
@@ -68,6 +72,28 @@ async function emptyClip(page: Page) {
   }
 }
 
+test('manual clip with existing subtitles exposes audio generation from timeline and confirms replacement', async ({ page }) => {
+  const fixture = await emptyClip(page, true)
+  await page.getByRole('tab', { name: 'Timeline', exact: true }).click()
+  await page.getByRole('button', { name: 'Buat subtitle dari audio', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Buat ulang subtitle dari audio?' })
+  await expect(dialog).toBeVisible()
+  expect(fixture.submitted()).toBeUndefined()
+  await dialog.getByRole('button', { name: 'Batal', exact: true }).click()
+  await page.getByRole('tab', { name: 'Subtitle 1', exact: true }).click()
+  await expect(page.getByLabel('Teks subtitle 1', { exact: true })).toHaveValue('Koreksi saya')
+  await page.screenshot({ path: test.info().outputPath('audio-toolbar-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Alat editor', exact: true }).click()
+  await page.getByRole('button', { name: 'Buat subtitle dari audio', exact: true }).click()
+  await page.screenshot({ path: test.info().outputPath('audio-dialog-mobile.png') })
+  await dialog.getByRole('button', { name: 'Ganti subtitle dari audio', exact: true }).click()
+  await expect.poll(fixture.submitted).toEqual({ expected_revision: 1, language: 'auto', replace_existing: true })
+  fixture.finish(true)
+  await expect(page.getByLabel('Teks subtitle 1', { exact: true })).toHaveValue('Tahan!')
+  await expect(page.getByRole('button', { name: 'Buat subtitle dari audio', exact: true })).toBeVisible()
+})
+
 test('recover subtitles from clip audio after saving and refresh word timing at unchanged bounds', async ({ page }) => {
   const fixture = await emptyClip(page)
   const generate = page.getByRole('button', { name: 'Buat subtitle dari audio', exact: true })
@@ -76,9 +102,11 @@ test('recover subtitles from clip audio after saving and refresh word timing at 
   await expect(page.getByText('Simpan perubahan terlebih dahulu', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Simpan', exact: true }).click()
   await expect(generate).toBeEnabled()
+  await generate.click()
   await page.getByRole('combobox', { name: 'Bahasa subtitle dari audio', exact: true }).click()
   await page.getByRole('option', { name: 'Bahasa Indonesia', exact: true }).click()
-  await generate.click()
+  await page.screenshot({ path: test.info().outputPath('audio-dialog-desktop.png') })
+  await page.getByRole('button', { name: 'Mulai buat subtitle', exact: true }).click()
   await expect.poll(fixture.submitted).toEqual({ expected_revision: 2, language: 'id' })
   await expect(generate).toBeDisabled()
   fixture.finish(true)
@@ -92,6 +120,7 @@ test('recover subtitles from clip audio after saving and refresh word timing at 
 test('no speech keeps subtitles empty and explains the result', async ({ page }) => {
   const fixture = await emptyClip(page)
   await page.getByRole('button', { name: 'Buat subtitle dari audio', exact: true }).click()
+  await page.getByRole('button', { name: 'Mulai buat subtitle', exact: true }).click()
   await expect.poll(fixture.submitted).toEqual({ expected_revision: 1, language: 'auto' })
   fixture.finish(false)
   await expect(page.getByText('Tidak ada ucapan yang terdeteksi pada audio klip ini.', { exact: true })).toBeVisible()
@@ -103,6 +132,7 @@ test('no speech keeps subtitles empty and explains the result', async ({ page })
 test('a subtitle job finishing during editing preserves the unsaved draft', async ({ page }) => {
   const fixture = await emptyClip(page)
   await page.getByRole('button', { name: 'Buat subtitle dari audio', exact: true }).click()
+  await page.getByRole('button', { name: 'Mulai buat subtitle', exact: true }).click()
   await expect.poll(fixture.submitted).toEqual({ expected_revision: 1, language: 'auto' })
   await page.getByLabel('Judul klip', { exact: true }).fill('Judul yang sedang saya edit')
   await page.getByRole('button', { name: 'Tambah subtitle', exact: true }).click()
@@ -117,6 +147,7 @@ test('a subtitle job finishing during editing preserves the unsaved draft', asyn
 test('a delayed failed poll cannot stop polling after the same subtitle job is retried', async ({ page }) => {
   const fixture = await emptyClip(page)
   await page.getByRole('button', { name: 'Buat subtitle dari audio', exact: true }).click()
+  await page.getByRole('button', { name: 'Mulai buat subtitle', exact: true }).click()
   await expect.poll(fixture.submitted).toEqual({ expected_revision: 1, language: 'auto' })
   fixture.fail()
   const held = fixture.holdNextPoll()

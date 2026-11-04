@@ -1,7 +1,20 @@
 import pytest
-from app.media.word_captions import align_words, word_events
+from app.media.word_captions import align_words, highlight_events, word_events
+import json
+from pathlib import Path
 from app.media.process import MediaError
 from app.media.subtitles import to_ass
+
+
+@pytest.mark.parametrize('item', json.loads((Path(__file__).parents[1] / 'fixtures' / 'podcast-timing.json').read_text(encoding='utf-8')), ids=lambda item: item['name'])
+def test_podcast_timing_shared_with_preview(item):
+    original = json.dumps(item)
+    if item['spans'] is None:
+        with pytest.raises(MediaError, match='timestamp'):
+            highlight_events([item['cue']], item['words'], item['clip_start'])
+    else:
+        assert highlight_events([item['cue']], item['words'], item['clip_start']) == [dict(item['cue'], word_spans=item['spans'])]
+    assert json.dumps(item) == original
 
 
 def test_word_timing_preserves_silence_punctuation_and_trim():

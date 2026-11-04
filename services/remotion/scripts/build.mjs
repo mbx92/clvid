@@ -12,6 +12,9 @@ await bundle({entryPoint: resolve(root, 'src/index.tsx'), outDir: resolve(root, 
 await build({entryPoints: [resolve(root, 'src/player.tsx')], outfile: resolve(root, 'dist/player.js'), bundle: true,
   format: 'iife', platform: 'browser', target: ['es2022'], minify: true,
   define: {'process.env.NODE_ENV': '"production"'}, legalComments: 'eof'});
+await build({entryPoints: [resolve(root, 'src/story-player.tsx')], outfile: resolve(root, 'dist/story-player.js'), bundle: true,
+  format: 'iife', platform: 'browser', target: ['es2022'], minify: true,
+  define: {'process.env.NODE_ENV': '"production"'}, legalComments: 'eof'});
 const notices = await Promise.all([
   ['Remotion', 'node_modules/remotion/LICENSE.md'],
   ['React and React DOM', 'node_modules/react/LICENSE'],

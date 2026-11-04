@@ -1,4 +1,5 @@
 from sqlalchemy import func, select
+from app.config import get_settings
 
 from app.domain.models import Asset, Clip, ClipRevision, Export, Job, SubtitleCue, Transcript
 from app.jobs.tracking_cache import tracking_signatures
@@ -51,6 +52,7 @@ def clip_data(db, clip, project):
     preview = db.get(Asset, project.preview_asset_id) if project.preview_asset_id else None
     revision = db.get(ClipRevision, clip.active_revision_id)
     return {"id": clip.id, "project_id": clip.project_id, "origin": clip.origin, "created_at": clip.created_at,
+            "translation_available": bool(get_settings().deepseek_api_key),
             "revision": revision_data(db, revision), "source_asset": asset_data(source), "preview_asset": asset_data(preview),
             "tracking_signatures": tracking_signatures(),
             "limits": {"min_clip_ms": 5000, "max_clip_ms": max(processing_limits(db, project.owner_id)["max_clip_ms"], revision.end_ms - revision.start_ms)},

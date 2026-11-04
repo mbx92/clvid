@@ -4,7 +4,6 @@ import { fileSize } from '~/utils/format'
 const props = defineProps<{ open: boolean; projectId?: string; projectName?: string }>()
 const emit = defineEmits<{ close: []; uploaded: [projectId: string, job: Job] }>()
 const api = useApi()
-const { csrf } = useSession()
 const name = ref('')
 const file = ref<File | null>(null)
 const sourceMode = ref<'file' | 'url'>('file')
@@ -33,11 +32,12 @@ const upload = async () => {
       emit('uploaded', createdId.value, job)
       return
     }
+    const csrfToken = await prepareCsrfToken()
     const result = await new Promise<Job>((resolve, reject) => {
       xhr = new XMLHttpRequest()
       xhr.open('POST', `/api/v1/projects/${createdId.value}/source`)
       xhr.withCredentials = true
-      xhr.setRequestHeader('X-CSRF-Token', csrf.value)
+      xhr.setRequestHeader('X-CSRF-Token', csrfToken)
       xhr.setRequestHeader('X-Filename', encodeURIComponent(file.value!.name))
       xhr.setRequestHeader('Content-Type', 'video/mp4')
       xhr.setRequestHeader('Idempotency-Key', idempotencyKey())

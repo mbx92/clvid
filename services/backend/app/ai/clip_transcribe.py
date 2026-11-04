@@ -80,10 +80,10 @@ def transcribe_clip(source: Path, scratch: Path, *, start_ms: int, end_ms: int,
         raise MediaError("invalid_clip", "Batas klip tidak valid untuk pembuatan subtitle.")
     scratch.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    # A short lead-in helps ASR recognize words near the cut. It never becomes
-    # a subtitle outside the requested clip. Audio stays on this machine.
+    # Context on both sides helps ASR finish words near either cut. Output is
+    # still clamped to the requested clip; EOF simply shortens the extraction.
     offset = max(0, start_ms - 2000)
-    duration = end_ms - offset
+    duration = end_ms - offset + 2000
     audio = scratch / "clip-speech.wav"
     normalized_audio = scratch / "clip-speech-normalized.wav"
     try:
@@ -94,7 +94,11 @@ def transcribe_clip(source: Path, scratch: Path, *, start_ms: int, end_ms: int,
             return transcribe(path, directory, model=getattr(settings, "whisper_subtitle_model", None) or settings.whisper_model,
                             device=settings.whisper_device, compute_type=settings.whisper_compute_type,
                             language=language, cache_dir=settings.whisper_download_root,
-                            cpu_threads=settings.whisper_cpu_threads, batch_size=settings.whisper_batch_size,
+                            # Batched inference can collapse 30 seconds into one
+                            # segment. A single invalid word then rejects that
+                            # whole window. Sequential GPU decoding returns
+                            # phrase boundaries and more reliable word alignment.
+                            cpu_threads=settings.whisper_cpu_threads, batch_size=1,
                             beam_size=settings.whisper_beam_size, duration_ms=duration,
                             timeout=settings.job_timeout_seconds, cancelled=cancelled,
                             progress=(lambda value: progress(base_progress + (value or 0) * .5)) if progress else None,

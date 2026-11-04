@@ -45,7 +45,44 @@ kosong, sistem memakai `WHISPER_MODEL`. Versi algoritma dan konfigurasi model
 menjadi bagian identitas pekerjaan, sehingga hasil kosong dari konfigurasi lama
 tidak menghalangi percobaan dengan konfigurasi baru.
 
+Pembuatan subtitle klip memakai decoding berurutan (`batch_size=1`) pada GPU
+maupun CPU, dengan konteks dua detik sebelum dan sesudah rentang klip. Ini
+menghindari hilangnya satu blok 30 detik ketika hasil batch memiliki satu kata
+yang gagal disejajarkan. Timestamp keluaran tetap dibatasi rentang klip dan
+filter ucapan yang tidak meyakinkan tetap berlaku. Versi pemulihan subtitle
+adalah `clip-speech-v4`; hasil lama perlu dibuat ulang melalui **Dari audio**.
+Transkripsi video penuh tetap mengikuti konfigurasi batch server.
+
+## Terjemahan subtitle Inggris ke Indonesia
+
+Di editor klip, panel **Subtitle** atau **Timeline**, pilih **Terjemahkan**
+lalu **Mulai terjemahkan**. Jika subtitle belum ada, gunakan **Dari audio**
+dengan bahasa **English** dahulu. Simpan edit sebelum memulai terjemahan.
+DeepSeek menerjemahkan teks dari revisi tersimpan; waktu setiap cue, batas
+klip, transkrip sumber dan audio asli dipertahankan. Fitur ini tidak melakukan dubbing.
+
+Tinjau teks Inggris dan Indonesia, pilih **Terapkan terjemahan ke draft**,
+koreksi bila perlu, lalu **Simpan** dan ekspor MP4/SRT. Hasil AI tidak langsung
+menimpa subtitle tersimpan. Usulan dari revisi lama atau ketika draft masih
+berubah tidak bisa diterapkan. Subtitle terjemahan memakai mode kalimat;
+template Podcast dialihkan ke Minimal karena timestamp kata sumber berbahasa
+Inggris tidak berlaku untuk urutan kata Indonesia. Gaya lain tetap dipertahankan.
+
+Memakai konfigurasi DeepSeek yang sudah ada dan kuota API penyedia. Proses
+berjalan di antrean ringan, mendukung batal/coba lagi, dan mencatat penggunaan
+AI per kelompok cue. Teks dibatasi 100.000 karakter per permintaan. Pemeriksaan:
+`test_subtitle_translation.py`, `test_subtitle_translation_api.py`, dan
+`subtitle-translation.spec.ts`.
+
 ## Efek subtitle
+
+Jika muncul peringatan teks terlalu panjang, pilih **Sesuaikan subtitle** pada
+panel Subtitle, Gaya subtitle, atau dialog ekspor. Tinjau usulan lalu pilih
+**Terapkan penyesuaian** dan **Simpan**. Ukuran otomatis diaktifkan; cue yang
+masih tidak muat dipecah tanpa membuang teks. Pemisahan memakai timing kata
+asli jika cocok. Untuk terjemahan atau teks manual tanpa timing kata, batas
+bagian diperkirakan dalam rentang cue asal dan perlu ditinjau di timeline.
+Timing perkiraan tidak dipakai untuk highlight Podcast; gunakan mode kalimat.
 
 Di editor klip, buka **Tampilan → Gaya subtitle**. Preset **Sinematik** memakai
 fade halus, **Gaming impact** memakai teks tebal dengan pop masuk, dan
@@ -189,6 +226,23 @@ Jangan menaruh key di frontend, source code, atau chat. Biaya ditampilkan sebaga
 token karena tarif uang belum dikonfigurasi.
 
 ## Menggunakan workspace
+
+Story Studio tersedia di `/studio`: masukkan naskah atau tabel storyboard, susun
+adegan dengan DeepSeek, lalu buka **Produksi** untuk membuat gambar, suara narator,
+dan subtitle dari audio. Tinjau usulan, terapkan ke draft, simpan, lalu ekspor
+MP4/SRT. Media yang sudah dipilih tetap dipakai; penggantian dilakukan per adegan.
+Subtitle bertimestamp dapat diedit, dan durasi produksi diperpanjang bila diperlukan
+agar ucapan selesai, dalam batas 30 detik per adegan dan 3 menit per video.
+
+Gambar dan suara kini mengutamakan model lokal, tanpa biaya API: Stable Diffusion
+untuk gambar, penerjemah arahan Indonesia–Inggris lokal, dan Pocket TTS untuk dua
+suara Indonesia. Pilihan suara dasar Inggris memakai eSpeak NG. Jalankan
+`powershell -File scripts/setup_story_local.ps1` untuk memasang model dan runtime
+Docker GPU. Model tersimpan di `.runtime/story-models`, bukan di image atau Git.
+Tidak ada fallback otomatis ke cloud. DeepSeek tetap opsional untuk tombol naskah
+dan gaya AI; impor tabel/paragraf dapat dipakai tanpa AI berbayar. Konfigurasi,
+batas kualitas, lisensi model dan pilihan cloud ada di
+[panduan Story Studio](services/remotion/STORYBOARD.md).
 
 Publikasi dan kalender tersedia melalui **Kalender** atau **Jadwalkan** pada hasil
 ekspor. Koneksi YouTube, Instagram, dan TikTok dikelola melalui **Pengaturan →

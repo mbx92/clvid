@@ -1,0 +1,11 @@
+# PyTorch is installed separately from the official CPU/CUDA wheel index.
+# Isolated from faster-whisper's CUDA dependencies in /app/.venv.
+torch==2.8.0
+diffusers==0.35.2
+transformers==4.57.1
+accelerate==1.11.0
+safetensors==0.6.2
+Pillow==11.3.0
+sentencepiece==0.2.1
+sacremoses==0.1.1
+pocket-tts[audio]==3.1.0

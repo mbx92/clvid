@@ -10,7 +10,7 @@ from .process import Cancelled, MediaError, ffmpeg, run_process
 
 # This version is part of the queued export fingerprint. Bump it whenever the
 # composition or its contract changes, so an old job cannot use new visuals.
-REMOTION_RENDERER_VERSION = "1"
+REMOTION_RENDERER_VERSION = "3"
 logger = logging.getLogger(__name__)
 
 

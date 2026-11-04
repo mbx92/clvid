@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { remotionFrame } from '../app/utils/remotion-preview.ts'
-import { applySubtitlePreset, subtitleDefaults, subtitlePresets } from '../app/utils/subtitle-style.ts'
+import { applySubtitlePreset, podcastSubtitlePreset, subtitleDefaults, subtitlePresets } from '../app/utils/subtitle-style.ts'
+import { captionLayout } from '../app/utils/subtitles.ts'
 import { effectsError, intervalDrag, remotionEffects, retimeEffects, zoomAt } from '../app/utils/remotion-effects.ts'
 
 test('Remotion preview follows export frames and clamps both ends of the clip', () => {
@@ -38,6 +39,18 @@ test('every typography preset preserves a selected Remotion template and placeme
     assert.equal(applied.enabled, true)
     assert.equal(applied.text_color, preset.style.text_color)
   }
+})
+
+test('podcast reference preset enables Remotion and wraps the reference caption without losing words', () => {
+  const s = podcastSubtitlePreset.style
+  assert.equal(s.renderer, 'remotion')
+  assert.equal(s.remotion_template, 'podcast')
+  assert.ok(s.enabled && s.bold && s.italic && s.uppercase)
+  assert.equal(s.text_color, '#FFE600')
+  assert.equal(s.background, false)
+  assert.equal(s.position, 'bottom')
+  assert.deepEqual(captionLayout('BUAT ROKOK GITU DEPAN GEDUNG', s.font_size, s.auto_fit),
+    { text: 'BUAT ROKOK GITU DEPAN\nGEDUNG', fontSize: 64, tooLong: false })
 })
 
 test('effect defaults are isolated and zooms stay within the current clip', () => {

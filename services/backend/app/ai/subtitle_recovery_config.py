@@ -4,7 +4,7 @@ from __future__ import annotations
 from app.media.process import MediaError
 
 
-ALGORITHM_VERSION = "clip-speech-v3"
+ALGORITHM_VERSION = "clip-speech-v4"
 ASR_FIELDS = ("model", "device", "compute_type", "beam_size", "cpu_threads", "batch_size")
 
 
@@ -13,6 +13,8 @@ def recovery_signature(settings) -> dict:
     # must not be reused when they change. Secrets and local paths stay out.
     asr = {name: getattr(settings, f"whisper_{name}") for name in ASR_FIELDS}
     asr["model"] = getattr(settings, "whisper_subtitle_model", None) or settings.whisper_model
+    # Clip recovery uses phrase-level sequential decoding even on CUDA.
+    asr["batch_size"] = 1
     return {"algorithm": ALGORITHM_VERSION, "asr": asr}
 
 

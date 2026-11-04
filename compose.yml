@@ -12,9 +12,11 @@ x-backend: &backend
     MEDIA_ROOT: /data/media
     WHISPER_DOWNLOAD_ROOT: /data/whisper
     SUBTITLE_FONT_PATH: /app/fonts/NotoSans-Regular.ttf
+    STORY_MODELS_ROOT: /data/story-models
   volumes:
     - media-data:/data/media
     - whisper-cache:/data/whisper
+    - ./.runtime/story-models:/data/story-models:ro
   restart: unless-stopped
   init: true
   stop_grace_period: 30s

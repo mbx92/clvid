@@ -142,7 +142,7 @@ class RemotionEffects(StrictModel):
 class SubtitleStyle(StrictModel):
     enabled: bool = True
     renderer: Literal["ffmpeg", "remotion"] = "ffmpeg"
-    remotion_template: Literal["minimal", "gaming", "cinematic"] = "gaming"
+    remotion_template: Literal["minimal", "gaming", "cinematic", "podcast"] = "gaming"
     remotion_effects: RemotionEffects = Field(default_factory=RemotionEffects)
     display_mode: Literal["sentence", "words"] = "sentence"
     animation: Literal["none", "fade", "pop", "rise"] = "none"
@@ -209,6 +209,11 @@ class SubtitleGenerateInput(StrictModel):
     expected_revision: int = Field(ge=1)
     language: Literal["auto", "id", "en"] = "auto"
     replace_existing: bool = False
+
+
+class SubtitleTranslateInput(StrictModel):
+    expected_revision: int = Field(ge=1)
+    target_language: Literal['id'] = 'id'
 
 
 class ExportInput(StrictModel):

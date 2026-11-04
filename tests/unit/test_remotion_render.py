@@ -91,6 +91,17 @@ def test_disabled_subtitles_remain_disabled_and_srt_is_preserved(adapter):
     assert result["srt"].read_text() == "Kalimat asli"
 
 
+def test_podcast_manifest_keeps_whole_sentence_and_word_timing(adapter):
+    adapter['snapshot']['subtitle_style_json'].update(remotion_template='podcast', display_mode='sentence')
+    events = [{'start_ms': 0, 'end_ms': 5000, 'text': 'Kalimat asli', 'word_spans': [
+        {'start_ms': 100, 'end_ms': 600, 'start_word': 0, 'end_word': 1},
+        {'start_ms': 800, 'end_ms': 1200, 'start_word': 1, 'end_word': 2}]}]
+    adapter['snapshot']['subtitle_events'] = events
+    result = invoke(adapter)
+    assert adapter['captured']['node'][2]['cues'] == events
+    assert result['srt'].read_text() == 'Kalimat asli'
+
+
 def test_video_effects_survive_disabled_captions_without_changing_source_or_audio_duration(adapter):
     effects = {
         "transition_in": "fade", "transition_out": "slide", "transition_ms": 300,

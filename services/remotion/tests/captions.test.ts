@@ -5,6 +5,37 @@ import {captionLayout} from '../src/layout';
 import {captionMotion, clampFrame, cueAtFrame, frameCount} from '../src/timing';
 import {defaultEffects, defaultStyle} from '../src/types';
 import {titleAtTime, videoMotion} from '../src/effects';
+import {createElement} from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {PodcastCaption, podcastParts} from '../src/Captions';
+import {captionChunks, hasTimedStoryCaptions, storyCaptionAtFrame, type StoryCaptionSource} from '../src/story-captions';
+
+test('story captions follow actual audio intervals, preserve silence and support seeking', () => {
+  const shot: StoryCaptionSource = {narration: 'Awal. Akhir.', duration_ms: 3000, audio_id: 'voice',
+    caption_audio_id: 'voice', caption_narration: 'Awal. Akhir.', show_caption: true,
+    captions: [{start_ms: 300, end_ms: 800, text: 'Awal.'}, {start_ms: 2200, end_ms: 2800, text: 'Akhir.'}]};
+  assert.equal(hasTimedStoryCaptions(shot), true);
+  for (const [frame, expected] of [[0, undefined], [9, 'Awal.'], [23, 'Awal.'], [24, undefined],
+    [65, undefined], [66, 'Akhir.'], [84, undefined], [90, undefined], [9, 'Awal.']] as const) {
+    assert.equal(storyCaptionAtFrame(shot, frame, 30), expected);
+  }
+  assert.equal(storyCaptionAtFrame({...shot, show_caption: false}, 9, 30), undefined);
+  for (const changed of [{...shot, audio_id: 'other'}, {...shot, audio_id: null}, {...shot, narration: 'Naskah baru.'}]) {
+    assert.equal(hasTimedStoryCaptions(changed), false);
+    assert.equal(storyCaptionAtFrame(changed, 0, 30), changed.narration);
+  }
+});
+
+test('legacy story narration uses matching Unicode chunks and frame boundaries', () => {
+  const narration = 'a'.repeat(60) + ' ' + '\u{1F600}'.repeat(5) + ' akhir';
+  const shot: StoryCaptionSource = {narration, duration_ms: 1100, audio_id: null, show_caption: true};
+  const chunks = ['a'.repeat(60), '\u{1F600}'.repeat(5) + ' akhir'];
+  assert.deepEqual(captionChunks(narration), chunks);
+  assert.equal(storyCaptionAtFrame(shot, 16, 30), chunks[0]);
+  assert.equal(storyCaptionAtFrame(shot, 17, 30), chunks[1]);
+  assert.equal(storyCaptionAtFrame(shot, 33, 30), undefined);
+  assert.equal(storyCaptionAtFrame({...shot, narration: ''}, 0, 30), undefined);
+});
 
 const fixtures: {text: string; size: number; auto: boolean; wrapped: string; effective: number}[] = JSON.parse(readFileSync(new URL('../../../tests/fixtures/subtitle-layout.json', import.meta.url), 'utf8'));
 
@@ -19,6 +50,31 @@ test('overlong captions are reported without truncating words', () => {
   assert.equal(layout.tooLong, true);
   assert.equal(layout.text.replace(/\s+/g, ' '), text);
   assert.equal(captionLayout(text, 52, false).tooLong, true);
+});
+
+test('podcast highlight follows spoken word indices, silence and backward seeking while retaining the sentence', () => {
+  const text = 'BUAT ROKOK GITU DEPAN\nGEDUNG';
+  const wordSpans = [{start_ms: 100, end_ms: 400, start_word: 0, end_word: 1},
+    {start_ms: 500, end_ms: 900, start_word: 1, end_word: 2},
+    {start_ms: 1000, end_ms: 1400, start_word: 4, end_word: 5}];
+  const render = (timeMs: number) => renderToStaticMarkup(createElement(PodcastCaption, {text, scale: 1, wordSpans, timeMs}));
+  const markup = render(600);
+  assert.equal((markup.match(/data-podcast-highlight/g) || []).length, 1);
+  assert.match(markup, /data-podcast-word="1" data-active="true"/);
+  assert.equal(markup.replace(/<[^>]+>/g, ''), text);
+  assert.match(markup, /background:#FFFFFF/);
+  assert.match(markup, /rotate\(-3deg\)/);
+  assert.match(render(1100), /data-podcast-word="4" data-active="true"/);
+  for (const t of [0, 400, 450, 900, 1400]) assert.ok(!render(t).includes('data-podcast-highlight'));
+  assert.equal(render(600), markup);
+  assert.match(render(150), /data-podcast-word="0" data-active="true"/);
+  const escaped = renderToStaticMarkup(createElement(PodcastCaption, {text: '<script> & aman', scale: 2 / 3, timeMs: 0}));
+  assert.ok(!escaped.includes('<script>'));
+  assert.ok(escaped.includes('&lt;script&gt;'));
+  assert.ok(!escaped.includes('data-podcast-highlight'));
+  assert.equal(renderToStaticMarkup(createElement(PodcastCaption, {text: '', scale: 1, timeMs: 0})), '');
+  assert.deepEqual(podcastParts('YA YA\nGEDUNG', 'YA YA GEDUNG').filter(part => part.word !== null).map(part => part.word), [0, 1, 2]);
+  assert.deepEqual(podcastParts('PANJANG\nSEKALI YA', 'PANJANGSEKALI YA').filter(part => part.word !== null).map(part => part.word), [0, 0, 1]);
 });
 test('frame count covers fractional ending frames and seek remains bounded', () => {
   assert.equal(frameCount(1001, 30), 31);

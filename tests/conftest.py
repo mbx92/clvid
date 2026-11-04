@@ -19,6 +19,8 @@ os.environ["MIN_FREE_DISK_BYTES"] = "0"
 os.environ["REDIS_URL"] = os.environ.get("CLIPPER_TEST_REDIS_URL", "redis://127.0.0.1:6387/15")
 os.environ["SUBTITLE_FONT_PATH"] = str(ROOT / "services/backend/fonts/NotoSans-Regular.ttf")
 os.environ["DEEPSEEK_API_KEY"] = ""
+os.environ["OPENAI_API_KEY"] = ""
+os.environ["STORY_LOCAL_ENABLED"] = "false"
 
 
 @pytest.fixture

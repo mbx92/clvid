@@ -27,7 +27,7 @@ def dispatch_once(limit: int = 30) -> int:
             event.attempt += 1
             try:
                 visual = job.kind == "analyze" and job.input_json.get("visual_analysis", False)
-                queue = "light" if job.kind in ("analyze", "delete_assets") and not visual else "heavy"
+                queue = "light" if job.kind in ("analyze", "subtitle_translate", "story_generate", "delete_assets") and not visual else "heavy"
                 celery_app.send_task("clipper.run_job", args=[job.id], task_id=job.id, queue=queue, retry=False)
             except Exception:
                 # Commit attempt count without discarding the durable event.

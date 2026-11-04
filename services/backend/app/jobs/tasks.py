@@ -22,7 +22,7 @@ from app.media.process import Cancelled, MediaError
 from app.media.render import check_disk, render_clip
 from app.media.subtitles import transcript_cues
 from app.domain.subtitle_timing import subtitle_events
-from app.domain.models import Publication
+from app.domain.models import Publication, Storyboard
 from app.media.tracking import track_clip
 from app.storage.local import LocalStorage
 
@@ -30,6 +30,8 @@ from .celery_app import celery_app
 from .runtime import JobContext, claim
 from .service import ACTIVE, create_job
 from .tracking_cache import find_tracking_result, make_tracking_spec, ready_preview, valid_framing
+from app.story.jobs import generate as generate_story, render as render_story
+from app.story.production import produce as produce_story
 from .clip_subtitles import generate_subtitles, merged_segments
 
 
@@ -420,11 +422,16 @@ def _delete_assets(ctx: JobContext, scratch: Path):
             imported.input_json = {}  # Drop source URLs and their query tokens on deletion.
         for analysis in db.scalars(select(Job).where(Job.project_id == project.id, Job.kind == "track_preview")):
             analysis.input_json, analysis.result_json = {}, {}
+        db.execute(delete(Storyboard).where(Storyboard.project_id == project.id))
+        for story_job in db.scalars(select(Job).where(Job.project_id == project.id, Job.kind.in_(("subtitle_translate", "story_generate", "story_render", "story_produce")))):
+            story_job.input_json, story_job.result_json = {}, {}
         # Completion is allowed for this tombstone because kind is delete_assets.
         _complete(db, ctx, {"deleted": True})
 
 
-HANDLERS = {"import_url": _import_url, "validate": _validate, "prepare_preview": _validate, "transcribe": _transcribe,
+from app.jobs.clip_translation import translate_subtitles
+
+HANDLERS = {"subtitle_translate": translate_subtitles, "story_generate": generate_story, "story_render": render_story, "story_produce": produce_story, "import_url": _import_url, "validate": _validate, "prepare_preview": _validate, "transcribe": _transcribe,
             "subtitle_generate": generate_subtitles,
             "analyze": _analyze, "track_preview": _track_preview, "render": _render,
             "delete_assets": _delete_assets}
@@ -461,7 +468,7 @@ def run_job(job_id: str):
                 if export:
                     export.status = job.status
                 project = db.get(Project, job.project_id)
-                if job.kind not in ("render", "track_preview", "subtitle_generate") and project.lifecycle_state == "active":
+                if job.kind not in ("render", "track_preview", "subtitle_generate", "subtitle_translate", "story_generate", "story_render", "story_produce") and project.lifecycle_state == "active":
                     # Keep transcript accessible after AI failure.
                     project.status = "ready" if job.kind == "analyze" else "failed"
                     project.error_message = message

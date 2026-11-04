@@ -42,7 +42,7 @@ def test_recovery_translates_and_clamps_word_timing_to_source(monkeypatch, tmp_p
     result = transcribe_clip(tmp_path / "source.mp4", tmp_path, start_ms=10000, end_ms=13000,
                              language="id", settings=settings)
     assert calls[0][0][1] == "8.000"
-    assert calls[0][0][5] == "5.000"
+    assert calls[0][0][5] == "7.000"
     assert result["segments"] == [{"start_ms": 10000, "end_ms": 13000, "text": "Awas boss menang",
         "words_json": [{"word": " Awas", "start_ms": 10000, "end_ms": 10400, "probability": .9},
                        {"word": " boss", "start_ms": 10500, "end_ms": 10800, "probability": .9},
@@ -176,3 +176,26 @@ def test_optional_normalization_failure_keeps_valid_original_speech(monkeypatch,
                              language="id", settings=settings)
     assert result["segments"][0]["text"] == "Awas boss menang"
     assert result["runtime"]["subtitle_recovery"]["passes"][-1]["error_code"] == "transcription_failed"
+
+
+def test_recovery_uses_sequential_decoding_and_retains_speech_to_clip_end(monkeypatch,tmp_path,settings):
+    prepare(monkeypatch,[])
+    settings.whisper_batch_size=8
+    batches=[]
+    def recognize(path,directory,**kwargs):
+        batches.append(kwargs['batch_size'])
+        # A batch returns a 30s segment with one unaligned word, which must
+        # never erase an otherwise correctly decoded second half of the clip.
+        if kwargs['batch_size']>1:
+            return {'language':'en','segments':[segment(words_json=[{'word':'bad','start_ms':32000,'end_ms':32000}])]}
+        rows=[]
+        for start,end in [(2200,2500),(31000,32000),(61000,61800),(62000,63500)]:
+            rows.append(segment(start_ms=start,end_ms=end,text=' Speech',words_json=[
+                {'word':' Speech','start_ms':start,'end_ms':end,'probability':.95}]))
+        return {'language':'en','segments':rows}
+    monkeypatch.setattr('app.ai.clip_transcribe.transcribe',recognize)
+    result=transcribe_clip(tmp_path/'source.mp4',tmp_path,start_ms=10000,end_ms=70000,language='en',settings=settings)
+    assert batches==[1,1]
+    assert result['segments'][-1]['end_ms']==69800
+    assert len(result['segments'])==3
+    assert all(10000<=s['start_ms']<s['end_ms']<=70000 for s in result['segments'])

@@ -34,7 +34,7 @@ export function parseRange(header, size) {
 }
 
 /** No directory serving: the token resolves to this already-open file only. */
-export async function serveVideo(videoPath) {
+export async function serveVideo(videoPath, mime = 'video/mp4') {
   const file = await open(videoPath, 'r');
   const stat = await file.stat();
   const route = `/${randomBytes(32).toString('hex')}/video.mp4`;
@@ -46,7 +46,7 @@ export async function serveVideo(videoPath) {
     const range = parseRange(req.headers.range, stat.size);
     if (range === false) {res.writeHead(416, {...headers, 'Content-Range': `bytes */${stat.size}`}); res.end(); return;}
     const start = range?.start ?? 0, end = range?.end ?? stat.size - 1;
-    res.writeHead(range ? 206 : 200, {...headers, 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes',
+    res.writeHead(range ? 206 : 200, {...headers, 'Content-Type': mime, 'Accept-Ranges': 'bytes',
       'Access-Control-Allow-Origin': '*', 'Content-Length': end - start + 1,
       ...(range ? {'Content-Range': `bytes ${start}-${end}/${stat.size}`} : {})});
     if (req.method === 'HEAD') {res.end(); return;}

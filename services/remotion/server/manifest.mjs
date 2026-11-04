@@ -45,7 +45,7 @@ export function normalizeStyle(input, durationMs) {
   // Construct a fresh allowlisted object; input cannot inject URLs or CSS.
   return {
     renderer: enumeration(s.renderer, ['remotion']),
-    remotion_template: enumeration(s.remotion_template ?? 'gaming', ['minimal', 'gaming', 'cinematic']),
+    remotion_template: enumeration(s.remotion_template ?? 'gaming', ['minimal', 'gaming', 'cinematic', 'podcast']),
     remotion_effects: normalizeEffects(s.remotion_effects, durationMs),
     enabled: boolean(s.enabled ?? true),
     display_mode: enumeration(s.display_mode ?? 'sentence', ['sentence', 'words']),
@@ -79,7 +79,23 @@ export function normalizeManifest(input) {
     if (end_ms <= start_ms || typeof c.text !== 'string' || !c.text.trim() || Array.from(c.text).length > 2000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(c.text)) reject();
     textLength += Array.from(c.text).length;
     if (textLength > 1000000) reject();
-    return {start_ms, end_ms, text: c.text};
+    const cue = {start_ms, end_ms, text: c.text};
+    if (c.word_spans !== undefined) {
+      if (!Array.isArray(c.word_spans) || c.word_spans.length > 2000) reject();
+      const count = c.text.trim().split(/\s+/u).length;
+      let lastEnd = start_ms, lastWord = 0;
+      cue.word_spans = c.word_spans.map(item => {
+        const span = object(item);
+        const begin = number(span.start_ms, lastEnd, end_ms, true);
+        const end = number(span.end_ms, begin, end_ms, true);
+        const first = number(span.start_word, lastWord, count - 1, true);
+        const last = number(span.end_word, first + 1, count, true);
+        if (end <= begin) reject();
+        lastEnd = end; lastWord = last;
+        return {start_ms: begin, end_ms: end, start_word: first, end_word: last};
+      });
+    }
+    return cue;
   }).sort((a, b) => a.start_ms - b.start_ms);
   for (const field of ['videoPath', 'outputPath']) {
     if (typeof m[field] !== 'string' || !m[field] || m[field].length > 4096 || m[field].includes('\0') || /^[a-z]+:\/\//i.test(m[field]) || m[field].split(/[\\/]/).includes('..')) reject();

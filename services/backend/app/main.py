@@ -12,6 +12,7 @@ from app.api.auth import router as auth_router
 from app.api.errors import AppError
 from app.api.routes import router
 from app.social.routes import router as social_router
+from app.story.routes import router as story_router
 from app.db import SessionLocal
 
 app = FastAPI(title="Clipper API", version="0.1.0", docs_url="/api/v1/docs", openapi_url="/api/v1/openapi.json", redoc_url=None)
@@ -95,3 +96,5 @@ def ready():
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
+
+app.include_router(story_router, prefix="/api/v1")
