@@ -118,8 +118,10 @@ def oauth_callback(platform:str,request:Request,state:str='',code:str='',error:s
     if error or not code: return RedirectResponse('/settings?section=accounts&connection=cancelled',status_code=303)
     try:
         connected=oauth.exchange(platform,code)
+        reconnected=True
         for item in connected:
             row=db.scalar(select(SocialAccount).where(SocialAccount.owner_id==user.id,SocialAccount.platform==platform,SocialAccount.external_id==item['external_id']))
+            if not row or not row.connected: reconnected=False
             if not row:
                 row=SocialAccount(owner_id=user.id,platform=platform,external_id=item['external_id']); db.add(row)
             row.name=item['name']; row.token_ciphertext=seal(item['token']); row.connected=True
@@ -127,7 +129,8 @@ def oauth_callback(platform:str,request:Request,state:str='',code:str='',error:s
     except Exception:
         db.rollback()
         return RedirectResponse('/settings?section=accounts&connection=failed',status_code=303)
-    return RedirectResponse('/settings?section=accounts&connection=connected',status_code=303)
+    connection='reconnected' if reconnected else 'connected'
+    return RedirectResponse(f'/settings?section=accounts&connection={connection}',status_code=303)
 
 
 @router.delete('/accounts/{account_id}',status_code=204)

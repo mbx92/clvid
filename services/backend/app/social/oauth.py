@@ -31,7 +31,7 @@ def authorization_url(platform, state):
     s = get_settings()
     params = {'response_type':'code','redirect_uri':callback_url(platform),'state':state}
     if platform == 'youtube':
-        params.update(client_id=s.youtube_client_id,scope='https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly',access_type='offline',prompt='consent')
+        params.update(client_id=s.youtube_client_id,scope='https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly',access_type='offline',prompt='consent select_account')
         base='https://accounts.google.com/o/oauth2/v2/auth'
     elif platform == 'instagram':
         params.update(client_id=s.meta_client_id,scope='pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish')

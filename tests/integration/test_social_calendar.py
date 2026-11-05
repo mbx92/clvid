@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select
@@ -79,7 +80,6 @@ def test_schedule_requires_consent_and_configuration_and_freezes_export(clients,
 
 
 def test_oauth_state_bound_to_session_and_tokens_never_returned(clients,database,social,monkeypatch):
-    from urllib.parse import urlparse,parse_qs
     owner,other=clients
     result=owner.post('/api/v1/social/oauth/youtube/start')
     assert result.status_code==200
@@ -95,6 +95,94 @@ def test_oauth_state_bound_to_session_and_tokens_never_returned(clients,database
         row=db.scalar(select(SocialAccount).where(SocialAccount.external_id=='new-channel'))
         assert 'sensitive' not in row.token_ciphertext
         assert unseal(row.token_ciphertext)['access_token']=='sensitive-access'
+
+
+def youtube_callback(owner,**params):
+    result=owner.post('/api/v1/social/oauth/youtube/start')
+    assert result.status_code==200
+    state=parse_qs(urlparse(result.json()['url']).query)['state'][0]
+    return owner.get('/api/v1/social/oauth/youtube/callback',params={'state':state,**params},follow_redirects=False)
+
+
+def test_youtube_oauth_requests_account_choice_with_offline_upload_access(clients,social):
+    result=clients[0].post('/api/v1/social/oauth/youtube/start')
+    assert result.status_code==200
+    url=urlparse(result.json()['url']); query=parse_qs(url.query)
+    assert url.scheme=='https' and url.netloc=='accounts.google.com'
+    assert query['prompt']==['consent select_account']
+    assert query['access_type']==['offline'] and query['response_type']==['code']
+    assert set(query['scope'][0].split())=={'https://www.googleapis.com/auth/youtube.upload','https://www.googleapis.com/auth/youtube.readonly'}
+    assert query['redirect_uri']==['http://testserver/api/v1/social/oauth/youtube/callback']
+    assert query['state'][0]
+
+
+def test_youtube_second_channel_preserves_first_token_and_scheduled_destination(clients,database,social,monkeypatch):
+    owner,other=clients
+    post=owner.post('/api/v1/social/posts',json=post_body(social,status='scheduled',consent=True)).json()
+    with database() as db:
+        original_ciphertext=db.get(SocialAccount,social['account_id']).token_ciphertext
+    second_token={'access_token':'second-channel-access','refresh_token':'second-channel-refresh'}
+    monkeypatch.setattr(oauth,'exchange',lambda platform,code:[{'external_id':'second-channel','name':'Second channel','token':second_token}])
+    result=youtube_callback(owner,code='second-code')
+    assert result.status_code==303 and result.headers['location'].endswith('connection=connected')
+    with database() as db:
+        first=db.get(SocialAccount,social['account_id'])
+        second=db.scalar(select(SocialAccount).where(SocialAccount.external_id=='second-channel'))
+        assert first.connected and first.token_ciphertext==original_ciphertext
+        assert second.id!=first.id and second.connected
+        assert unseal(second.token_ciphertext)==second_token
+        scheduled=db.get(Publication,post['id'])
+        assert scheduled.account_id==first.id and scheduled.status=='scheduled'
+    accounts=owner.get('/api/v1/social/accounts')
+    assert {row['name'] for row in accounts.json()['items']}=={'Test channel','Second channel'}
+    assert 'second-channel-access' not in accounts.text and 'second-channel-refresh' not in accounts.text
+    assert other.get('/api/v1/social/accounts').json()['items']==[]
+
+
+@pytest.mark.parametrize('previously_connected',[True,False])
+def test_youtube_reconnect_updates_only_selected_channel_without_duplicates(clients,database,social,monkeypatch,previously_connected):
+    owner=clients[0]
+    with database() as db:
+        first=db.get(SocialAccount,social['account_id'])
+        original_ciphertext=first.token_ciphertext
+        second=SocialAccount(owner_id=first.owner_id,platform='youtube',external_id='second-channel',name='Previous name',
+            token_ciphertext=seal({'access_token':'previous-second-access'}),connected=previously_connected)
+        db.add(second); db.commit(); second_id=second.id
+    post=owner.post('/api/v1/social/posts',json=post_body(social,account_id=second_id,status='scheduled' if previously_connected else 'draft',consent=True)).json()
+    new_token={'access_token':'renewed-second-access','refresh_token':'renewed-second-refresh'}
+    monkeypatch.setattr(oauth,'exchange',lambda platform,code:[{'external_id':'second-channel','name':'Renewed channel','token':new_token}])
+    result=youtube_callback(owner,code='renew-code')
+    expected='reconnected' if previously_connected else 'connected'
+    assert result.status_code==303 and result.headers['location'].endswith('connection='+expected)
+    with database() as db:
+        assert len(list(db.scalars(select(SocialAccount))))==2
+        first=db.get(SocialAccount,social['account_id']); second=db.get(SocialAccount,second_id)
+        assert first.token_ciphertext==original_ciphertext and first.name=='Test channel' and first.connected
+        assert second.name=='Renewed channel' and second.connected and unseal(second.token_ciphertext)==new_token
+        saved_post=db.get(Publication,post['id'])
+        assert saved_post.account_id==second_id
+        assert saved_post.status==('scheduled' if previously_connected else 'draft')
+
+
+@pytest.mark.parametrize('outcome',['cancelled','failed'])
+def test_unsuccessful_youtube_connection_preserves_existing_channel(clients,database,social,monkeypatch,outcome):
+    from app.api.errors import AppError
+    owner=clients[0]
+    post=owner.post('/api/v1/social/posts',json=post_body(social,status='scheduled',consent=True)).json()
+    with database() as db:
+        original_ciphertext=db.get(SocialAccount,social['account_id']).token_ciphertext
+    def exchange(platform,code):
+        assert outcome=='failed', 'Cancelled authorization must not exchange a code'
+        raise AppError(502,'SOCIAL_PROVIDER','Provider rejected authorization')
+    monkeypatch.setattr(oauth,'exchange',exchange)
+    result=youtube_callback(owner,**({'error':'access_denied'} if outcome=='cancelled' else {'code':'rejected-code'}))
+    assert result.status_code==303 and result.headers['location'].endswith('connection='+outcome)
+    with database() as db:
+        rows=list(db.scalars(select(SocialAccount)))
+        assert len(rows)==1 and rows[0].id==social['account_id']
+        assert rows[0].connected and rows[0].token_ciphertext==original_ciphertext
+        scheduled=db.get(Publication,post['id'])
+        assert scheduled.account_id==social['account_id'] and scheduled.status=='scheduled'
 
 
 def test_instagram_signed_media_scoped_to_active_post(clients,database,social):
