@@ -277,14 +277,62 @@ koneksi OAuth dan kesiapan API masing-masing platform. Ikuti
 [panduan koneksi dan kalender](docs/SOCIAL-PUBLISHING.md). TikTok memiliki batasan
 audit/penggunaan untuk aplikasi lokal pribadi; kalender tidak melewati aturan itu.
 
+**Riwayat YouTube** di Kalender mengimpor video publik yang sudah tayang dari
+channel terhubung. Judul, deskripsi, thumbnail, tautan, dan tanggal publikasi
+diambil dari YouTube Data API. Tanggal mengikuti `videos.snippet.publishedAt`,
+bukan tanggal video dimasukkan ke playlist; lihat
+[referensi video YouTube](https://developers.google.com/youtube/v3/docs/videos#snippet.publishedAt).
+Video privat, tidak publik (unlisted), dan tayangan mendatang tidak dimasukkan.
+Riwayat tampil dengan label **Sudah tayang · YouTube** dan tidak masuk antrean
+upload/persetujuan. Publikasi lokal dengan ID video/akun yang sama digabung dalam
+tampilan kalender menggunakan tanggal aktual dari YouTube.
+
+Worker `youtube-sync` menarik riwayat secara bertahap (hingga 200 video per
+giliran) dan melanjutkan halaman berikutnya otomatis. Pemindaian ulang dilakukan
+setiap enam jam, atau lewat **Sinkronkan YouTube**. **Lihat tayangan terbaru**
+membuka tanggal video terakhir, termasuk jika berada di bulan lain. Kegagalan
+API tidak menghapus riwayat sebelumnya; video yang sudah tidak tersedia akan
+disembunyikan setelah pemindaian penuh berhasil. Melepas koneksi akun menghapus
+riwayat sinkronisasi lokal akun tersebut. OAuth memerlukan izin `youtube.readonly`
+yang sudah diminta alur koneksi; jika akses ditolak, periksa izin/kuota dan
+hubungkan ulang akun bila perlu.
+
+**Kalender → Tinjau & approve** menampilkan usulan publikasi otomatis dari MP4
+hasil ekspor yang selesai. Publisher memeriksa ekspor setiap menit, termasuk
+ekspor lama yang belum memiliki publikasi untuk akun tujuan. Default: satu slot
+per hari pukul **18.00 WITA** untuk setiap akun terhubung. Akun tujuan, zona waktu,
+dan hingga enam slot harian dapat diatur di **Pengaturan jadwal otomatis**.
+Judul dan caption awal diambil dari judul/topik klip; periksa sebelum menyetujui.
+YouTube diusulkan dengan visibilitas Publik dan audiens bukan khusus anak-anak;
+ubah pilihan tersebut bila perlu. TikTok tetap memerlukan pilihan privasi dan
+konfirmasi musik pada editor.
+
+Setiap usulan tetap draft sampai pengguna menekan **Setujui & jadwalkan**.
+**Edit** mengubah metadata/waktu, sedangkan **Tolak** mencegah usulan ulang klip
+yang sama pada akun tersebut. Ekspor ulang/revisi tidak otomatis membuat upload
+ganda; gunakan Tambah jadwal jika memang ingin memublikasikan klip itu lagi.
+Video mentah perlu diekspor menjadi MP4 terlebih dahulu. Usulan yang waktunya
+sudah lewat perlu diedit sebelum disetujui. Menjeda otomatisasi menghentikan
+usulan baru, bukan jadwal yang sudah disetujui. Docker harus tetap berjalan
+untuk mempersiapkan usulan dan mengirim video sesuai jadwal.
+
 Pada **Pengaturan → Batas pemrosesan**, ubah batas durasi sumber (1–720 menit),
 ukuran file (hingga 64 GiB), dan durasi maksimum klip (5–600 detik). Default
 instalasi tetap 60 menit, 2 GiB, dan 180 detik. Pengaturan disimpan per akun dan
 berlaku untuk upload maupun impor URL. Job menyimpan batas saat dibuat;
 percobaan ulang memakai batas terbaru. Menurunkan batas tidak menghapus klip lama.
 
+Antarmuka memakai tema ruang produksi video: graphite netral untuk monitor dan
+panel, amber untuk tindakan/pilihan aktif, serta status berlabel untuk membedakan
+draft, proses, dan hasil selesai. Warna timeline membedakan video, subtitle, zoom,
+dan judul. Warna konten video, subtitle, serta template ekspor tetap mengikuti
+pengaturan proyek. Token warna dasar berada di `apps/web/app/assets/css/main.css`,
+aturan ruang kerja di `workbench.css`, dan halaman pustaka di `library.css`.
+
 Workspace mengikuti tinggi layar. Kontrol preview, trim, simpan, dan ekspor
 tetap terlihat; daftar klip, transkrip, dan ekspor panjang bergulir di panelnya.
+Dialog dan pengaturan panjang menggunakan scroll internal tanpa mengecilkan
+teks atau tombol. Navigasi keyboard, indikator fokus, dan reduced motion didukung.
 Di ponsel, gunakan tab **Preview / Alat editor**. Pengaturan tampilan dibagi
 menjadi **Framing / Gaya subtitle**; gaming memiliki **Area sumber / Susunan panel**.
 

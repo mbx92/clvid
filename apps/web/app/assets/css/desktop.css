@@ -11,13 +11,13 @@
   .desktop-fit { flex: 1; min-height: 0; min-width: 0; overflow: clip; overflow-anchor: none; }
   .desktop-fit-content { display: flow-root; transform-origin: top left; }
   .scroll-list { position: relative; flex: 1; min-height: 0; min-width: 0; }
-  .scroll-list, .library-viewport { overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #a7b5ae transparent; }
+  .scroll-list, .library-viewport { overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; }
   .scroll-list:focus-visible, .library-viewport:focus-visible { outline-offset: -2px; }
   .toolbar { flex: none; margin-bottom: 12px; }
   .projects-page > .desktop-fit { flex: 1; }
   .library-viewport { flex: 1; min-height: 0; }
   .library-viewport .project-table, .library-viewport .media-table { overflow: clip; }
-  .library-viewport .project-table-heading, .library-viewport .media-table-heading { position: sticky; top: 0; z-index: 2; background: #f6f8f5; }
+  .library-viewport .project-table-heading, .library-viewport .media-table-heading { position: sticky; top: 0; z-index: 2; background: var(--color-surface); }
   .project-row { min-height: 65px; }
   .media-row { min-height: 61px; }
   .pagination { margin-top: 10px; flex: none; }

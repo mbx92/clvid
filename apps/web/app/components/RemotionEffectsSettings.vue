@@ -50,10 +50,10 @@ function removeZoom() {
 </template>
 <style scoped>
 .remotion-effects-settings, .effect-card { display: grid; gap: 14px; }
-.effect-card { padding: 14px; border: 1px solid var(--color-border); border-radius: 8px; background: #fafbf9; }
+.effect-card { padding: 14px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface-muted); }
 .effect-card h3 { font-size: 13px; margin: 0; }
 .effect-card p { margin: 0; }
 .effect-card > label { display: grid; gap: 5px; font-size: 12px; }
 .zoom-choices { display: flex; gap: 6px; flex-wrap: wrap; }
-.zoom-choices [aria-pressed=true] { border-color: var(--color-accent); background: #e7eff2; }
+.zoom-choices [aria-pressed=true] { border-color: var(--color-accent); background: var(--color-accent-soft); }
 </style>

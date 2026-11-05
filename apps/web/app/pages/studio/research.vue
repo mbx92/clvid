@@ -106,8 +106,8 @@ const views = (value: number) => new Intl.NumberFormat('id-ID', { notation: 'com
 <template>
   <div class="page research-page">
     <NuxtLink to="/studio" class="breadcrumb"><AppIcon name="ArrowLeft" :size="16" />Studio</NuxtLink>
-    <header class="page-header"><div><p class="eyebrow">RISET VIDEO</p><h1>Dari topik menjadi klip</h1><p class="muted">Temukan video publik, pilih sumbernya, lalu biarkan AI memilih momen untuk Anda.</p></div></header>
-    <ol class="research-steps" aria-label="Alur riset video"><li><span>1</span>Cari topik</li><li><span>2</span>Pilih sumber</li><li><span>3</span>Buat klip otomatis</li></ol>
+    <header class="page-header"><div><p class="eyebrow">PERSIAPAN PRODUKSI</p><h1>Riset sumber video</h1><p class="muted">Cari video, periksa sumber, lalu tentukan klip yang akan diproduksi.</p></div></header>
+    <ol class="research-steps" aria-label="Alur riset video"><li :class="{ current: !result }" :aria-current="!result ? 'step' : undefined"><span>01</span>Cari topik</li><li :class="{ current: !!result && !selected }" :aria-current="result && !selected ? 'step' : undefined"><span>02</span>Pilih sumber</li><li :class="{ current: !!selected }" :aria-current="selected ? 'step' : undefined"><span>03</span>Buat klip otomatis</li></ol>
     <form class="research-search panel" @submit.prevent="search">
       <label for="research-topic">Topik atau kata kunci</label>
       <div class="research-search-row"><input id="research-topic" v-model="query" type="search" minlength="2" maxlength="200" required placeholder="Contoh: podcast bisnis kopi Indonesia" :disabled="searching || locked" /><button type="submit" class="button primary" :disabled="searching || locked"><AppIcon name="Search" />{{ searching ? 'Mencari video…' : 'Cari video' }}</button></div>
@@ -159,30 +159,38 @@ const views = (value: number) => new Intl.NumberFormat('id-ID', { notation: 'com
 <style scoped>
 .research-page { overflow-y: auto; }
 .research-page .page-header { margin: 18px 0 22px; }
-.research-steps { display: flex; flex-wrap: wrap; list-style: none; padding: 0; margin: 0 0 22px; gap: 12px 28px; color: var(--color-text-muted); font-size: 13px; }
-.research-steps li { display: flex; align-items: center; gap: 8px; }
-.research-steps span { display: inline-grid; place-items: center; width: 25px; height: 25px; border: 1px solid var(--color-border); border-radius: 50%; font-weight: 600; }
-.research-search { padding: 20px; display: grid; gap: 10px; margin-bottom: 22px; }
+.research-steps { display: flex; flex-wrap: wrap; list-style: none; padding: 0; margin: 0 0 22px; gap: 12px 32px; color: var(--color-text-muted); font-size: 12px; }
+.research-steps li { display: flex; align-items: center; gap: 9px; padding-bottom: 8px; border-bottom: 2px solid transparent; }
+.research-steps span { font: 11px ui-monospace, monospace; }
+.research-steps li.current { color: var(--color-text); border-bottom-color: var(--color-accent); }
+.research-steps li.current span { color: var(--color-accent); }
+.research-search { padding: 18px 20px; display: grid; gap: 10px; margin-bottom: 22px; background: var(--color-surface); border-radius: 5px; }
 .research-search > label { font-weight: 600; }
 .research-search-row { display: flex; gap: 10px; }
 .research-search-row input { flex: 1; }
 .research-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 24px; align-items: start; }
 .research-results { display: grid; gap: 14px; min-width: 0; }
-.research-video { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; padding: 15px; }
-.research-video.chosen { border-color: var(--color-accent); outline: 1px solid var(--color-accent); }
+.research-video { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; padding: 15px; border-radius: 5px; }
+.research-video.chosen { border-color: var(--color-accent); box-shadow: inset 3px 0 var(--color-accent); }
 .research-thumb { position: relative; align-self: start; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 5px; background: var(--color-surface-muted); }
 .research-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.research-duration { position: absolute; right: 5px; bottom: 5px; background: #202420e8; color: white; padding: 1px 5px; font-size: 11px; border-radius: 3px; }
+.research-duration { position: absolute; right: 5px; bottom: 5px; background: #0e1012eb; color: #eceef1; padding: 3px 5px; font: 10px ui-monospace, monospace; border-radius: 2px; }
 .research-video-body { display: grid; gap: 8px; min-width: 0; }
 .research-video h3 { line-height: 1.4; }
 .research-description { color: var(--color-text-muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.research-options { position: sticky; top: 20px; padding: 20px; }
+.research-options { position: sticky; top: 20px; padding: 20px; border-radius: 5px; border-top: 2px solid #68717d; }
 .research-options h2 { margin-bottom: 5px; }
 .research-options form > div > p { overflow-wrap: anywhere; }
 .research-fields { display: grid; gap: 15px; padding: 0; border: 0; min-width: 0; margin: 0; }
 .research-fields > label, .research-fields .form-grid > label { display: grid; gap: 6px; font-size: 13px; }
 .research-fields .checkbox-label { display: flex; }
 .research-fields .custom-select { min-width: 0; }
+.research-fields { padding-block: 16px; border-block: 1px solid var(--color-border); }
+.research-fields:disabled { opacity: .55; }
+.research-results > .row { padding-bottom: 10px; border-bottom: 1px solid var(--color-border); }
+.research-results > .row h2 { font-size: 14px; }
+.research-options .form-stack { gap: 15px; }
+.research-options > form > div:first-child h2 { font-size: 16px; }
 @media (max-width: 1150px) { .research-video { grid-template-columns: 130px minmax(0, 1fr); } .research-workspace { grid-template-columns: minmax(0, 1fr) 310px; gap: 16px; } }
 @media (max-width: 900px) { .research-workspace { grid-template-columns: 1fr; } .research-options { position: static; } .research-video { grid-template-columns: 180px minmax(0, 1fr); } }
 @media (max-width: 550px) { .research-search-row { flex-direction: column; } .research-video { grid-template-columns: 1fr; } .research-search, .research-options { padding: 15px; } .research-steps { gap: 10px; font-size: 11px; } }

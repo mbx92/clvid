@@ -65,6 +65,38 @@ class SocialAccount(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class YouTubeVideo(Base):
+    __tablename__ = 'youtube_videos'
+    __table_args__ = (UniqueConstraint('account_id', 'video_id'),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey('social_accounts.id', ondelete='CASCADE'), index=True)
+    video_id: Mapped[str] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(200))
+    caption: Mapped[str] = mapped_column(Text, default='')
+    thumbnail_url: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class YouTubeSyncState(Base):
+    __tablename__ = 'youtube_sync_states'
+    account_id: Mapped[str] = mapped_column(ForeignKey('social_accounts.id', ondelete='CASCADE'), primary_key=True)
+    uploads_playlist_id: Mapped[str | None] = mapped_column(String(200))
+    cursor: Mapped[str | None] = mapped_column(Text)
+    cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_sync_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class PublicationAutomation(Base):
+    __tablename__ = "publication_automation"
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    settings_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class SocialOAuthState(Base):
     __tablename__ = "social_oauth_states"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)

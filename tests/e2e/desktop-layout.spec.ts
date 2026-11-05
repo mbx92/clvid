@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-test('desktop shell stays fixed while only content panels scroll', async ({ page, context }) => {
+test('desktop shell stays fixed while readable content panels scroll', async ({ page, context }) => {
   test.skip(!process.env.CLIPPER_E2E_WORKSPACE_CLIP_ID, 'Disposable QA account required')
   test.setTimeout(120000)
   const artifacts = resolve(import.meta.dirname, '../../.artifacts/desktop-layout')
@@ -16,11 +16,19 @@ test('desktop shell stays fixed while only content panels scroll', async ({ page
       body:document.documentElement.scrollHeight<=innerHeight+2 && document.documentElement.scrollWidth<=innerWidth+2 ? true : {height:document.documentElement.scrollHeight,width:document.documentElement.scrollWidth,viewport:[innerWidth,innerHeight]},
       clippedControls:Array.from(document.querySelectorAll<HTMLElement>('.main-content button,.main-content input,.main-content textarea,.main-content select,.dialog button,.dialog input,.dialog textarea,.dialog select')).filter(e => {
         const r=e.getBoundingClientRect()
-        return !e.closest('.scroll-list,.library-viewport') && r.width>2 && r.height>2 && (r.top < -1 || r.bottom > innerHeight+1 || r.left < -1 || r.right > innerWidth+1)
+        // Long inspectors and dialogs scroll at their native font size. A control
+        // may be outside the viewport only if a bounded ancestor can reveal it.
+        let ancestor=e.parentElement
+        while(ancestor && ancestor!==document.body) {
+          const style=getComputedStyle(ancestor), bounds=ancestor.getBoundingClientRect()
+          if(/(auto|scroll)/.test(style.overflowY) && ancestor.scrollHeight>ancestor.clientHeight+2 && bounds.top>=-1 && bounds.bottom<=innerHeight+1) return false
+          ancestor=ancestor.parentElement
+        }
+        return r.width>2 && r.height>2 && (r.top < -1 || r.bottom > innerHeight+1 || r.left < -1 || r.right > innerWidth+1)
       }).map(e=>e.getAttribute('aria-label') || e.textContent?.slice(0,40) || e.tagName),
       scrollers:Array.from(document.querySelectorAll<HTMLElement>('body *')).filter(e => {
         const r=e.getBoundingClientRect(),s=getComputedStyle(e)
-        return !e.matches('.scroll-list,.library-viewport') && r.width>0 && r.height>0 && !['TEXTAREA','SELECT'].includes(e.tagName) && /(auto|scroll)/.test(s.overflowY) && e.scrollHeight>e.clientHeight+2
+        return r.width>0 && r.height>0 && !['TEXTAREA','SELECT'].includes(e.tagName) && /(auto|scroll)/.test(s.overflowY) && e.scrollHeight>e.clientHeight+2 && (r.top < -1 || r.bottom > innerHeight+1)
       }).map(e=>e.className)
     })),{message:name}).toEqual({body:true,scrollers:[],clippedControls:[]})
     await page.screenshot({path:resolve(artifacts,name+'.png')})

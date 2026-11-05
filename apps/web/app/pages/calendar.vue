@@ -16,6 +16,7 @@ const exports = ref<any[]>([])
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
+const automationPanel = ref<{ refresh: () => Promise<void> } | null>(null)
 const open = ref(false)
 const postStep = ref(0)
 const busy = ref(false)
@@ -63,6 +64,7 @@ async function load() {
     exports.value = result[1].items
     posts.value = result[2].items.sort((a: any, b: any) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at) || Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id))
     error.value = ''
+    await automationPanel.value?.refresh()
   } catch (e) { error.value = errorMessage(e) } finally { loading.value = false }
 }
 onMounted(() => {
@@ -77,6 +79,7 @@ function newPost() {
   void refreshConnections().then(ok => { if (ok && open.value && form.value === draft && !draft.account_id) draft.account_id = singlePublicationAccount(draft.platform, accounts.value) })
 }
 function editPost(post: any) {
+  timezone.value = post.timezone
   postStep.value = 0; editing.value = post; form.value = { ...blank(), ...post, account_id: post.account_id || '', local_time: localInput(post.scheduled_at, timezone.value), consent: false, options: { ...blank().options, ...post.options, audience: post.options.audience || '' } }
   commercialDisclosure.value = !!(post.options.commercial_own || post.options.commercial_paid)
   formError.value = ''; open.value = true
@@ -112,19 +115,64 @@ async function save(status: 'draft' | 'scheduled') {
 async function action(post: any, name: string) {
   try { await api(`/social/posts/${post.id}/${name}`, { method: 'POST' }); await load() } catch (e) { error.value = errorMessage(e) }
 }
+function showYouTubeDate(value: string) {
+  selected.value = localInput(value, timezone.value).slice(0, 10)
+  month.value = selected.value.slice(0, 7)
+}
 </script>
 <template>
   <div class="page calendar-page">
-    <header class="page-header"><div><p class="eyebrow">Publikasi konten</p><h1>Kalender</h1><p class="muted">Rencanakan YouTube, Instagram Reels, dan TikTok dari hasil ekspor klip.</p></div><button class="button primary" @click="newPost"><AppIcon name="Plus" />Tambah jadwal</button></header>
-    <InlineError :message="error" /><p v-if="notice" class="notice" role="status">{{ notice }}</p>
-    <div class="calendar-body"><section class="panel calendar-panel"><header class="calendar-toolbar"><div class="row gap-3"><button class="icon-button" aria-label="Bulan sebelumnya" @click="month = moveMonth(month, -1)"><AppIcon name="ChevronLeft" /></button><h2>{{ heading }}</h2><button class="icon-button" aria-label="Bulan berikutnya" @click="month = moveMonth(month, 1)"><AppIcon name="ChevronRight" /></button><button class="text-button" @click="month = today().slice(0, 7); selected = today()">Hari ini</button></div><label><span class="sr-only">Zona waktu kalender</span><AppSelect v-model="timezone" label="Zona waktu kalender" :options="timezones" /></label></header>
-      <div class="calendar-week"><span v-for="day in ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']" :key="day">{{ day }}</span></div>
-      <div class="calendar-grid"><button v-for="day in cells" :key="day" class="calendar-cell" :class="{ outside: !day.startsWith(month), selected: day === selected, today: day === today() }" :aria-label="`${day}, ${onDay(day).length} publikasi`" :aria-pressed="day === selected" @click="selected = day"><span class="day-number">{{ Number(day.slice(-2)) }}</span><span v-for="post in onDay(day).slice(0, 2)" :key="post.id" class="calendar-event" :class="post.platform"><span>{{ clock(post.scheduled_at) }}</span> {{ post.title }}</span><small v-if="onDay(day).length > 2">+{{ onDay(day).length - 2 }} lainnya</small></button></div>
-    </section>
-    <section class="calendar-agenda"><header><h2>{{ new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeZone: 'UTC' }).format(new Date(selected + 'T00:00:00Z')) }}</h2><span class="muted small">{{ dayPosts.length }} publikasi · {{ timezones.find(z => z.value === timezone)?.label }}</span></header><p v-if="loading && !posts.length" role="status">Memuat kalender…</p><div v-else-if="!dayPosts.length" class="panel empty-state compact"><AppIcon name="CalendarDays" :size="28" /><h3>Belum ada rencana pada tanggal ini</h3><p>Pilih Tambah jadwal untuk menyiapkan publikasi.</p></div>
-      <ScrollList :key="selected" :items="dayPosts" label="agenda" v-slot="{ items }"><article v-for="post in items" :key="post.id" class="panel agenda-post"><div class="agenda-time">{{ clock(post.scheduled_at) }}</div><div class="agenda-main"><span class="muted small">{{ platformLabels[post.platform] }} · {{ post.account_name || 'Akun belum dipilih' }}</span><h3>{{ post.title }}</h3><p>{{ post.caption }}</p><span class="status" :class="`status-${post.status === 'published' ? 'ready' : post.status}`">{{ publicationLabels[post.status] }}</span><span v-if="post.platform === 'youtube' && post.options.privacy" class="muted small"> · {{ post.options.privacy }}</span><p v-if="post.error_message" class="error-text">{{ post.error_message }}</p></div><div class="agenda-actions"><button v-if="['draft', 'scheduled'].includes(post.status)" class="button secondary small-button" @click="editPost(post)">Edit jadwal</button><button v-if="['draft', 'scheduled', 'failed'].includes(post.status)" class="text-button" @click="action(post, 'cancel')">Batalkan</button><button v-if="post.status === 'uncertain'" class="button secondary small-button" @click="action(post, 'check')">Periksa status</button><button v-if="['failed', 'cancelled'].includes(post.status)" class="text-button" @click="action(post, 'draft')">Kembalikan ke draft</button><a v-if="post.remote_url" :href="post.remote_url" target="_blank" rel="noopener noreferrer" class="button secondary small-button">Lihat hasil ↗</a><a v-if="post.preview_url" :href="post.preview_url + '?download=true'" class="text-button">Unduh MP4</a></div></article></ScrollList>
-    </section></div>
-    <p class="muted small calendar-footnote">Waktu jadwal adalah waktu mulai pengiriman. Proses upload, moderasi, dan pemrosesan platform dapat membuat video tampil lebih lambat. Komputer dan Docker perlu tetap menyala; jadwal yang terlewat saat mati akan diproses setelah layanan kembali aktif.</p>
+    <header class="page-header">
+      <div><p class="eyebrow">Distribusi video</p><h1>Kalender</h1><p class="muted">Susun jadwal, tinjau konten, dan ikuti video yang sudah tayang.</p></div>
+      <button class="button primary" @click="newPost"><AppIcon name="Plus" />Tambah jadwal</button>
+    </header>
+    <InlineError :message="error" />
+    <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+    <PublicationAutomation ref="automationPanel" :accounts="accounts" :platforms="platforms" @edit="editPost" @changed="load" />
+    <YouTubeCalendarSync @changed="load" @jump="showYouTubeDate" />
+    <div class="calendar-body">
+      <section class="panel calendar-panel" aria-label="Kalender bulanan">
+        <header class="calendar-toolbar">
+          <div class="calendar-month-controls">
+            <h2>{{ heading }}</h2>
+            <div class="calendar-month-arrows"><button class="icon-button" aria-label="Bulan sebelumnya" @click="month = moveMonth(month, -1)"><AppIcon name="ChevronLeft" /></button><button class="icon-button" aria-label="Bulan berikutnya" @click="month = moveMonth(month, 1)"><AppIcon name="ChevronRight" /></button></div>
+            <button class="button secondary small-button" @click="month = today().slice(0, 7); selected = today()">Hari ini</button>
+          </div>
+          <label class="calendar-timezone"><span class="sr-only">Zona waktu kalender</span><AppSelect v-model="timezone" label="Zona waktu kalender" :options="timezones" /></label>
+        </header>
+        <div class="calendar-week"><span v-for="day in ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']" :key="day">{{ day }}</span></div>
+        <div class="calendar-grid">
+          <button v-for="day in cells" :key="day" class="calendar-cell" :class="{ outside: !day.startsWith(month), selected: day === selected, today: day === today() }" :aria-label="`${day}, ${onDay(day).length} publikasi`" :aria-pressed="day === selected" @click="selected = day">
+            <span class="day-number">{{ Number(day.slice(-2)) }}</span>
+            <small v-if="onDay(day).length > 1" class="calendar-narrow-overflow">+{{ onDay(day).length - 1 }}</small>
+            <span v-for="post in onDay(day).slice(0, 2)" :key="post.id" class="calendar-event" :class="[`state-${post.status}`, post.platform]" :title="`${clock(post.scheduled_at)} | ${platformLabels[post.platform]} | ${publicationLabels[post.status]} | ${post.title}`"><span class="event-time">{{ clock(post.scheduled_at) }}</span><span class="event-title">{{ post.title }}</span></span>
+            <small v-if="onDay(day).length > 2" class="calendar-overflow">+{{ onDay(day).length - 2 }} lainnya</small>
+          </button>
+        </div>
+        <footer class="calendar-legend" aria-label="Keterangan status"><span><i class="legend-mark draft" />Draft</span><span><i class="legend-mark scheduled" />Terjadwal</span><span><i class="legend-mark published" />Sudah tayang</span></footer>
+      </section>
+      <section class="calendar-agenda" aria-label="Agenda tanggal terpilih">
+        <header class="agenda-header"><p class="eyebrow">Agenda</p><h2>{{ new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeZone: 'UTC' }).format(new Date(selected + 'T00:00:00Z')) }}</h2><span class="muted small">{{ dayPosts.length }} publikasi &middot; {{ timezones.find(z => z.value === timezone)?.label }}</span></header>
+        <p v-if="loading && !posts.length" class="muted small" role="status">Memuat kalender...</p>
+        <div v-else-if="!dayPosts.length" class="agenda-empty"><AppIcon name="CalendarDays" :size="26" /><h3>Belum ada rencana pada tanggal ini</h3><p>Pilih Tambah jadwal untuk menyiapkan publikasi.</p><button class="text-button" @click="newPost"><AppIcon name="Plus" :size="15" />Tambah jadwal di tanggal ini</button></div>
+        <ScrollList :key="selected" :items="dayPosts" label="agenda" v-slot="{ items }">
+          <article v-for="post in items" :key="post.id" class="panel agenda-post" :class="`state-${post.status}`">
+            <div class="agenda-post-header"><time class="agenda-time">{{ clock(post.scheduled_at) }}</time><span class="status" :class="`status-${post.status === 'published' ? 'ready' : post.status}`"><i class="status-dot" />{{ post.source === 'youtube' ? 'Sudah tayang · YouTube' : publicationLabels[post.status] }}</span></div>
+            <a v-if="post.thumbnail_url" :href="post.remote_url" target="_blank" rel="noopener noreferrer" class="agenda-thumbnail"><img :src="post.thumbnail_url" :alt="post.title" class="youtube-history-thumb" loading="lazy" referrerpolicy="no-referrer" /></a>
+            <div class="agenda-main"><p class="agenda-destination">{{ platformLabels[post.platform] }}<span>{{ post.account_name || 'Akun belum dipilih' }}</span></p><h3>{{ post.title }}</h3><p v-if="post.caption" class="agenda-caption">{{ post.caption }}</p><span v-if="post.platform === 'youtube' && post.options.privacy" class="muted small">Visibilitas: {{ post.options.privacy }}</span><p v-if="post.error_message" class="error-text">{{ post.error_message }}</p></div>
+            <div class="agenda-actions">
+              <button v-if="!post.readonly && ['draft', 'scheduled'].includes(post.status)" class="button secondary small-button" @click="editPost(post)">Edit jadwal</button>
+              <button v-if="!post.readonly && ['draft', 'scheduled', 'failed'].includes(post.status)" class="text-button" @click="action(post, 'cancel')">Batalkan</button>
+              <button v-if="post.status === 'uncertain'" class="button secondary small-button" @click="action(post, 'check')">Periksa status</button>
+              <button v-if="['failed', 'cancelled'].includes(post.status)" class="text-button" @click="action(post, 'draft')">Kembalikan ke draft</button>
+              <a v-if="post.remote_url" :href="post.remote_url" target="_blank" rel="noopener noreferrer" class="button secondary small-button">Lihat hasil <AppIcon name="ArrowRight" :size="14" /></a>
+              <a v-if="post.preview_url" :href="post.preview_url + '?download=true'" class="text-button">Unduh MP4</a>
+            </div>
+          </article>
+        </ScrollList>
+      </section>
+    </div>
+    <p class="muted small calendar-footnote"><AppIcon name="Clock3" :size="14" />Jadwal menentukan waktu mulai upload. Komputer dan Docker perlu tetap menyala; pemrosesan platform dapat menunda waktu tayang.</p>
     <AppDialog :open="open" :title="editing ? 'Edit jadwal publikasi' : 'Jadwal publikasi baru'" :busy="busy" wide @close="open = false"><form v-if="form" class="social-post-form form-stack" @submit.prevent="save('scheduled')"><InlineError :message="formError" /><p v-if="!exports.length" class="notice">Belum ada hasil ekspor. Ekspor klip menjadi MP4 terlebih dahulu.</p><div class="tool-tabs" role="group" aria-label="Bagian jadwal"><button type="button" :aria-pressed="postStep === 0" @click="postStep = 0">Video & jadwal</button><button type="button" :aria-pressed="postStep === 1" @click="postStep = 1">Opsi publikasi</button></div><div v-show="postStep === 0" class="social-step"><div class="form-grid"><label>Video hasil ekspor<AppSelect v-model="form.export_id" label="Video hasil ekspor" placeholder="Pilih hasil ekspor" required :options="exportOptions" @update:model-value="exportChanged" /></label><label>Platform<AppSelect v-model="form.platform" label="Platform publikasi" :options="platformOptions" @update:model-value="platformChanged" /></label><label>Akun tujuan<AppSelect v-model="form.account_id" label="Akun tujuan" :options="accountOptions" :disabled="connectionsLoading" /></label><label>Tanggal dan jam · {{ timezones.find(z => z.value === timezone)?.label }}<input v-model="form.local_time" type="datetime-local" required aria-label="Tanggal dan jam publikasi" /></label></div>
       <video v-if="chosenExport" class="social-video-preview" :src="chosenExport.preview_url" controls preload="metadata" playsinline />
       <label>Judul<input v-model="form.title" required maxlength="100" aria-label="Judul publikasi" /></label><label>Caption / deskripsi<textarea v-model="form.caption" rows="3" :maxlength="form.platform === 'youtube' ? 5000 : 2200" aria-label="Caption publikasi" /></label>

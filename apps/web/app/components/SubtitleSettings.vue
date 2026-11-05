@@ -63,17 +63,17 @@ function value(event: Event) { return (event.target as HTMLInputElement).value }
 .subtitle-settings { gap:16px; padding:4px 0 18px; }
 .subtitle-settings label { display:flex; flex-direction:column; gap:7px; font-size:12px; font-weight:500; min-width:0; }
 .subtitle-settings .checkbox-label { flex-direction:row; align-items:center; font-weight:400; line-height:1.5; }
-.subtitle-settings > .checkbox-label:first-child { padding-bottom:14px; border-bottom:1px solid #e4e8e1; font-weight:600; }
+.subtitle-settings > .checkbox-label:first-child { padding-bottom:14px; border-bottom:1px solid var(--color-border); font-weight:600; }
 .engine-fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .engine-fields > label:only-child { grid-column:1 / -1; }
-.template-description { font-size:12px; line-height:1.6; color:#657169; margin:-6px 0 0; }
+.template-description { font-size:12px; line-height:1.6; color:var(--color-text-muted); margin:-6px 0 0; }
 .range-heading { display:flex; justify-content:space-between; align-items:center; }
-.subtitle-settings .tool-tabs { background:transparent; padding:0; border-bottom:1px solid #dfe5dc; border-radius:0; gap:18px; }
+.subtitle-settings .tool-tabs { background:transparent; padding:0; border:0; border-bottom:1px solid var(--color-border); border-radius:0; gap:18px; }
 .subtitle-settings .tool-tabs button { flex:none; padding:9px 0; border-radius:0; border-bottom:2px solid transparent; font-size:12px; }
-.subtitle-settings .tool-tabs button[aria-pressed=true] { box-shadow:none; background:transparent; border-bottom-color:#355d78; font-weight:600; }
-.preset-disclosure { display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; text-align:left; padding:12px; border:1px solid #dce3d7; border-radius:6px; background:#f8faf5; color:inherit; cursor:pointer; }
+.subtitle-settings .tool-tabs button[aria-pressed=true] { box-shadow:none; background:transparent; border-bottom-color:var(--color-accent); font-weight:600; }
+.preset-disclosure { display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; text-align:left; padding:12px; border:1px solid var(--color-border); border-radius:6px; background:var(--color-surface-muted); color:inherit; cursor:pointer; }
 .preset-disclosure strong { display:block; font-size:12px; font-weight:600; }
-.preset-disclosure small { display:block; font-size:11px; color:#6b766e; margin-top:4px; }
+.preset-disclosure small { display:block; font-size:11px; color:var(--color-text-muted); margin-top:4px; }
 .subtitle-settings .subtitle-presets { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
 .preset-disclosure + .subtitle-presets { margin-top:10px; }
 .subtitle-settings .subtitle-presets button { min-height:70px; padding:12px 8px; text-align:left; border-radius:5px; }
@@ -85,7 +85,7 @@ function value(event: Event) { return (event.target as HTMLInputElement).value }
 .subtitle-settings .subtitle-toggles { justify-content:flex-start; flex-wrap:wrap; gap:16px; padding:10px 0; }
 .subtitle-settings .subtitle-toggles label { flex-direction:row; align-items:center; }
 .full-width { grid-column:1 / -1; }
-.size-placement { display:flex; flex-direction:column; gap:14px; padding-top:16px; border-top:1px solid #e4e8e1; }
+.size-placement { display:flex; flex-direction:column; gap:14px; padding-top:16px; border-top:1px solid var(--color-border); }
 .size-placement h3 { margin:0; font-size:12px; font-weight:600; }
 .subtitle-settings .compact-help { font-size:11px; line-height:1.6; margin:0; }
 .subtitle-settings .subtitle-placement { align-items:start; }
@@ -93,7 +93,7 @@ function value(event: Event) { return (event.target as HTMLInputElement).value }
 .subtitle-settings :deep(.select-button) { min-height:40px; font-size:12px; }
 .subtitle-settings input[type=range] { width:100%; min-height:24px; }
 .subtitle-settings input[type=checkbox] { width:15px; height:15px; }
-.subtitle-settings button:focus-visible { outline:2px solid #355d78; outline-offset:3px; }
+.subtitle-settings button:focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; }
 .podcast-preset { background: #29282d; color: #ffe600; }
 .podcast-preset strong { font-weight: 900; font-style: italic; -webkit-text-stroke: 1.5px #111; paint-order: stroke fill; }
 .podcast-preset strong span { background: #fff; border-radius: 2px; padding: 1px 3px; }

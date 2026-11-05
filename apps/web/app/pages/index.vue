@@ -35,18 +35,42 @@ const duration = (p: Project) => p.source_asset?.metadata?.duration_ms || p.dura
 </script>
 <template>
   <div class="page projects-page">
-    <header class="page-header"><div><p class="eyebrow">Pustaka video</p><h1>Proyek</h1><p class="muted">Pilih momen, rapikan klip, lalu ekspor.</p></div><button class="button primary" @click="uploadOpen = true"><AppIcon name="Plus" />Proyek baru</button></header>
-    <div class="toolbar"><label class="search-field"><AppIcon name="Search" /><input v-model="query" type="search" placeholder="Cari nama proyek" aria-label="Cari nama proyek" /></label><AppSelect v-model="status" :options="filterOptions" label="Filter status" /><span class="result-count muted">{{ total }} proyek</span></div>
+    <header class="page-header library-header">
+      <div><p class="eyebrow">Sumber &amp; klip</p><h1>Proyek</h1><p class="muted">Bahan video Anda, dari momen pilihan sampai hasil akhir.</p></div>
+      <button class="button primary" @click="uploadOpen = true"><AppIcon name="Plus" />Proyek baru</button>
+    </header>
+    <div class="toolbar library-toolbar">
+      <label class="search-field"><AppIcon name="Search" :size="16" /><input v-model="query" type="search" placeholder="Cari nama proyek" aria-label="Cari nama proyek" /></label>
+      <AppSelect v-model="status" :options="filterOptions" label="Filter status" />
+      <span class="result-count muted"><strong>{{ total }}</strong> proyek</span>
+    </div>
     <InlineError :message="error"><button class="text-button" @click="load()">Coba lagi</button></InlineError>
     <div v-if="loading && !projects.length" class="empty-state" role="status"><p>Memuat proyek…</p></div>
-    <section v-else-if="!projects.length && !error" class="empty-state panel"><span class="empty-icon"><AppIcon name="FolderOpen" :size="28" /></span><h2>{{ query || status ? 'Tidak ada proyek yang cocok' : 'Belum ada proyek' }}</h2><p>{{ query || status ? 'Coba kata pencarian atau status lain.' : 'Unggah video pertama untuk mulai membuat klip.' }}</p><button v-if="!query && !status" class="button primary" @click="uploadOpen = true"><AppIcon name="Upload" />Unggah video</button><button v-else class="button secondary" @click="query = ''; status = ''">Hapus filter</button></section>
-    <div v-else-if="projects.length" ref="tableViewport" class="library-viewport" role="region" aria-label="Daftar proyek" tabindex="0"><div class="project-table panel">
-      <div class="project-table-heading"><span>Nama proyek</span><span>Durasi</span><span>Status</span><span>Diperbarui</span><span class="sr-only">Aksi</span></div>
-      <article v-for="project in projects" :key="project.id" class="project-row"><NuxtLink :to="`/projects/${project.id}`" class="project-name"><VideoThumb :asset="project.preview_asset || project.source_asset" /><span><strong>{{ project.name }}</strong><small>{{ project.clip_count || 0 }} klip</small></span></NuxtLink><span class="timecode project-duration">{{ duration(project) ? timecode(duration(project)) : '—' }}</span><div class="project-status"><StatusBadge :status="project.status || project.lifecycle_state" /></div><time class="muted small project-date">{{ dateTime(project.updated_at) }}</time><button class="icon-button delete-project" :aria-label="`Hapus proyek ${project.name}`" @click="deleteTarget = project; deleteError = ''"><AppIcon name="Trash2" :size="17" /></button></article>
-    </div>
+    <section v-else-if="!projects.length && !error" class="empty-state panel library-empty">
+      <span class="empty-icon"><AppIcon name="FolderOpen" :size="28" /></span>
+      <h2>{{ query || status ? 'Tidak ada proyek yang cocok' : 'Belum ada proyek' }}</h2>
+      <p>{{ query || status ? 'Coba kata pencarian atau status lain.' : 'Unggah bahan video, pilih momen terbaik, lalu susun klip Anda.' }}</p>
+      <button v-if="!query && !status" class="button primary" @click="uploadOpen = true"><AppIcon name="Upload" />Unggah video</button>
+      <button v-else class="button secondary" @click="query = ''; status = ''">Hapus filter</button>
+    </section>
+    <div v-else-if="projects.length" ref="tableViewport" class="library-viewport" role="region" aria-label="Daftar proyek" tabindex="0">
+      <div class="project-table panel">
+        <div class="project-table-heading"><span>Proyek / video sumber</span><span>Durasi</span><span>Status</span><span>Diperbarui</span><span class="sr-only">Aksi</span></div>
+        <article v-for="(project, index) in projects" :key="project.id" class="project-row">
+          <NuxtLink :to="`/projects/${project.id}`" class="project-name">
+            <span class="library-row-number" aria-hidden="true">{{ String((page - 1) * pageSize + index + 1).padStart(2, '0') }}</span>
+            <VideoThumb :asset="project.preview_asset || project.source_asset" />
+            <span><strong>{{ project.name }}</strong><small>{{ project.clip_count || 0 }} klip<span class="library-row-open">Buka ruang edit <AppIcon name="ArrowRight" :size="12" /></span></small></span>
+          </NuxtLink>
+          <span class="timecode project-duration">{{ duration(project) ? timecode(duration(project)) : '—' }}</span>
+          <div class="project-status"><StatusBadge :status="project.status || project.lifecycle_state" /></div>
+          <time class="muted small project-date">{{ dateTime(project.updated_at) }}</time>
+          <button class="icon-button delete-project" :aria-label="`Hapus proyek ${project.name}`" @click="deleteTarget = project; deleteError = ''"><AppIcon name="Trash2" :size="16" /></button>
+        </article>
+      </div>
     </div>
     <div v-if="total > pageSize" class="pagination"><button class="button secondary" :disabled="page <= 1" @click="page--">Sebelumnya</button><span>Halaman {{ page }}</span><button class="button secondary" :disabled="page * pageSize >= total" @click="page++">Berikutnya</button></div>
-    <p class="workspace-note"><AppIcon name="Film" :size="16" />Video sumber dan hasil tersimpan privat di instalasi ini.</p>
+    <footer class="workspace-note library-footer"><span><AppIcon name="HardDrive" :size="14" />Penyimpanan privat di instalasi ini</span><NuxtLink to="/files">Kelola file <AppIcon name="ArrowRight" :size="13" /></NuxtLink></footer>
     <UploadDialog :open="uploadOpen" @close="uploadOpen = false; load(true)" @uploaded="uploaded" />
     <AppDialog :open="!!deleteTarget" title="Hapus proyek?" :description="`Proyek “${deleteTarget?.name}”, video sumber, transkrip, klip, dan seluruh hasil ekspornya akan dihapus. Tindakan ini tidak dapat dibatalkan.`" :busy="deleting" @close="deleteTarget = null"><InlineError :message="deleteError" /><div class="dialog-actions"><button class="button secondary" :disabled="deleting" @click="deleteTarget = null">Batal</button><button class="button danger" :disabled="deleting" @click="remove">{{ deleting ? 'Meminta penghapusan…' : 'Hapus proyek' }}</button></div></AppDialog>
   </div>

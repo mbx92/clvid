@@ -65,15 +65,15 @@ onBeforeUnmount(() => {disposed = true; generation++; for (const r of requests) 
   </section>
 </template>
 <style scoped>
-.translate-tools { flex:none; padding:12px 16px; border-bottom:1px solid #e3e8de; background:#f5f7f1; }
+.translate-tools { flex:none; padding:12px 16px; border-bottom:1px solid var(--color-border); background:var(--color-surface-muted); }
 .translate-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .translate-heading strong { font-size:12px; }
-.translate-heading p { font-size:11px; color:#647267; margin:4px 0 0; }
+.translate-heading p { font-size:11px; color:var(--color-text-muted); margin:4px 0 0; }
 .translate-tools > p { margin:8px 0 0; }
 .translation-dialog { display:grid; gap:14px; }
-.translation-list { max-height:360px; overflow:auto; border:1px solid #e3e8de; border-radius:8px; }
-.translation-list article { padding:12px; border-bottom:1px solid #e3e8de; overflow-wrap:anywhere; }
+.translation-list { max-height:360px; overflow:auto; border:1px solid var(--color-border); border-radius:8px; }
+.translation-list article { padding:12px; border-bottom:1px solid var(--color-border); overflow-wrap:anywhere; }
 .translation-list p { margin:7px 0 0; white-space:pre-wrap; }
-.translation-list .original { color:#6e756f; font-size:12px; }
-.translation-list small { color:#52665c; }
+.translation-list .original { color:var(--color-text-muted); font-size:12px; }
+.translation-list small { color:var(--color-text-muted); }
 </style>

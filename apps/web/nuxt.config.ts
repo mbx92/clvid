@@ -17,7 +17,7 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-10-30',
   ssr: false,
   devtools: { enabled: false },
-  css: ['~/assets/css/main.css', '~/assets/css/workspace.css', '~/assets/css/calendar.css', '~/assets/css/desktop.css', '~/assets/css/select.css'],
+  css: ['~/assets/css/main.css', '~/assets/css/workspace.css', '~/assets/css/calendar.css', '~/assets/css/desktop.css', '~/assets/css/select.css', '~/assets/css/workbench.css', '~/assets/css/library.css'],
   vite: { plugins: [tailwindcss()] },
   nitro: {
     externals: process.platform === 'win32' ? { traceOptions: { readlink: traceReadlink } } : {},

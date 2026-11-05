@@ -110,15 +110,21 @@ onBeforeRouteLeave(to => {if(dirty.value && !leaving.value) {leaveTo.value = to.
 </script>
 <template>
   <div class="story-editor-page">
-    <header class="story-header"><NuxtLink to="/studio" class="icon-button" aria-label="Kembali ke Story Studio"><AppIcon name="ArrowLeft"/></NuxtLink><div class="story-heading"><label class="sr-only" for="story-title">Judul video</label><input v-if="draft" id="story-title" v-model="draft.title" maxlength="200" :disabled="busy"/><small>{{ dirty ? 'Perubahan belum tersimpan' : `Versi ${data?.version || 1} tersimpan` }} · {{ timecode(duration) }}</small></div><div class="row gap-2"><button class="button secondary" :disabled="busy || !dirty || !!validation" @click="save"><AppIcon name="Save"/>Simpan</button><button class="button primary" :disabled="busy || !draft || !!validation" @click="run('render')"><AppIcon name="Download"/>Ekspor MP4</button></div></header>
+    <header class="story-header"><NuxtLink to="/studio" class="icon-button" aria-label="Kembali ke Story Studio"><AppIcon name="ArrowLeft"/></NuxtLink><div class="story-heading"><label class="sr-only" for="story-title">Judul video</label><input v-if="draft" id="story-title" v-model="draft.title" maxlength="200" :disabled="busy"/><small :class="{ 'has-changes': dirty }"><span class="save-indicator"/>{{ dirty ? 'Perubahan belum tersimpan' : `Versi ${data?.version || 1} tersimpan` }}<span class="header-duration">{{ timecode(duration) }}</span></small></div><div class="row gap-2"><button class="button secondary" :disabled="busy || !dirty || !!validation" @click="save"><AppIcon name="Save"/>Simpan</button><button class="button primary" :disabled="busy || !draft || !!validation" @click="run('render')"><AppIcon name="Download"/>Ekspor MP4</button></div></header>
     <InlineError :message="error || validation"/>
     <p v-if="message" class="story-message" role="status">{{ message }}<button class="icon-button" aria-label="Tutup pemberitahuan" @click="message = ''"><AppIcon name="X" :size="14"/></button></p>
     <div class="story-mobile-switch"><button :aria-pressed="mobilePane === 'edit'" @click="mobilePane = 'edit'">Editor</button><button :aria-pressed="mobilePane === 'preview'" @click="mobilePane = 'preview'">Preview</button></div>
     <div v-if="draft && data" class="story-workspace" :class="`show-${mobilePane}`">
-      <section class="story-player-panel"><div class="story-preview-stage"><StoryPreview v-if="!validation" :document="draft" :assets="data.assets" :selected-scene="selected"/><p v-else class="notice">Perbaiki durasi adegan untuk menampilkan preview.</p></div><div class="story-preview-footer"><span>PREVIEW · REMOTION</span><label>Format<select v-model="draft.aspect" :disabled="busy"><option value="portrait">9:16 Vertikal</option><option value="landscape">16:9 Horizontal</option><option value="square">1:1 Persegi</option></select></label></div><p class="muted small">{{ captionsReady }} adegan memakai subtitle dari audio. Adegan lainnya memakai perkiraan waktu dari teks narasi.</p></section>
+      <section class="story-player-panel" aria-label="Preview dan urutan adegan">
+        <div class="story-monitor-heading"><span>MONITOR PROGRAM</span><span>{{ draft.aspect === 'portrait' ? '720 × 1280' : draft.aspect === 'landscape' ? '1280 × 720' : '1080 × 1080' }} <b>30 FPS</b></span></div>
+        <div class="story-preview-stage"><StoryPreview v-if="!validation" :document="draft" :assets="data.assets" :selected-scene="selected"/><p v-else class="notice">Perbaiki durasi adegan untuk menampilkan preview.</p></div>
+        <div class="story-preview-footer"><span>ADEGAN {{ String(selected + 1).padStart(2, '0') }} / {{ String(draft.scenes.length).padStart(2, '0') }}</span><label>Format<select v-model="draft.aspect" :disabled="busy"><option value="portrait">9:16 Vertikal</option><option value="landscape">16:9 Horizontal</option><option value="square">1:1 Persegi</option></select></label></div>
+        <div class="story-sequence"><div class="sequence-heading"><h2>Urutan adegan</h2><span>{{ timecode(duration) }}</span></div><div class="sequence-tracks" role="group" aria-label="Urutan adegan"><button v-for="(s, i) in draft.scenes" :key="s.id" :style="{ flexGrow: s.duration_ms }" :aria-pressed="selected === i" :aria-label="`Pilih adegan ${i + 1}: ${s.title || 'Tanpa judul'}`" @click="selectScene(i)"><span>{{ String(i + 1).padStart(2, '0') }}</span><strong>{{ s.title || 'Tanpa judul' }}</strong><small>{{ timecode(s.duration_ms) }}</small></button></div></div>
+        <p class="story-caption-note">{{ captionsReady }} dari {{ draft.scenes.length }} adegan memakai subtitle dari audio. Sisanya mengikuti perkiraan teks narasi.</p>
+      </section>
       <section class="story-tools"><div class="story-tabs" role="tablist" aria-label="Editor storyboard"><button v-for="t in [{id:'script',label:'Naskah'},{id:'scenes',label:'Adegan'},{id:'production',label:'Produksi'},{id:'style',label:'Gaya'},{id:'results',label:'Hasil'}]" :key="t.id" role="tab" :aria-selected="tab === t.id" :aria-controls="`story-panel-${t.id}`" :id="`story-tab-${t.id}`" @click="tab = t.id">{{ t.label }}<span v-if="t.id === 'scenes'">{{ draft.scenes.length }}</span><span v-if="t.id === 'results' && activeJobs.length">{{ activeJobs.length }}</span></button></div>
         <div class="story-tool-content" role="tabpanel" :id="`story-panel-${tab}`" :aria-labelledby="`story-tab-${tab}`" :inert="busy || undefined">
-          <div v-if="tab === 'script'" class="story-form"><div class="section-heading"><span class="eyebrow">01 / CERITA</span><h2>Mulai dengan isi konten Anda.</h2><p>Tulis naskah, storyboard per paragraf, atau tempel tabel Waktu, Visual, dan Narasi.</p></div><label>Naskah atau storyboard<textarea v-model="draft.script" rows="10" maxlength="12000" placeholder="Pembuka: Kenapa kopi terasa pahit?&#10;&#10;Adegan berikutnya: Tiga hal yang perlu diperhatikan..."/></label><label class="checkbox-label"><input v-model="draft.preserve_script" type="checkbox"/>Pertahankan naskah persis saat memakai AI</label><p class="muted small">Untuk tabel, yang dipertahankan adalah kolom narasi. Waktu dan visual dibaca terpisah; tautan sumber tetap tersimpan di naskah.</p><div class="story-actions"><button class="button primary" :disabled="!draft.script.trim() || !data.ai_available || activeJobs.some(j => j.kind === 'story_generate')" @click="run('generate')"><AppIcon name="Film"/>Susun dengan DeepSeek</button><button v-if="hasStoryboardTable" class="button secondary" @click="importTable">Impor tabel storyboard</button><button v-else class="button secondary" :disabled="!draft.script.trim()" @click="splitScript">Satu paragraf per adegan</button></div><p class="muted small">Naskah dan arahan gaya dikirim ke DeepSeek saat Anda menggunakan AI. Aset unggahan tidak dikirim.</p><p v-if="!data.ai_available" class="notice">DeepSeek belum dikonfigurasi. Anda tetap dapat menulis adegan dan memilih template secara manual.</p><button class="text-button" @click="tab = 'scenes'">Atau susun adegan sendiri <AppIcon name="ArrowRight" :size="14"/></button></div>
+          <div v-if="tab === 'script'" class="story-form"><div class="section-heading"><span class="eyebrow">NASKAH &amp; STRUKTUR</span><h2>Susun isi video.</h2><p>Tulis naskah, storyboard per paragraf, atau tempel tabel Waktu, Visual, dan Narasi.</p></div><label>Naskah atau storyboard<textarea v-model="draft.script" rows="10" maxlength="12000" placeholder="Pembuka: Kenapa kopi terasa pahit?&#10;&#10;Adegan berikutnya: Tiga hal yang perlu diperhatikan..."/></label><label class="checkbox-label"><input v-model="draft.preserve_script" type="checkbox"/>Pertahankan naskah persis saat memakai AI</label><p class="muted small">Untuk tabel, yang dipertahankan adalah kolom narasi. Waktu dan visual dibaca terpisah; tautan sumber tetap tersimpan di naskah.</p><div class="story-actions"><button class="button primary" :disabled="!draft.script.trim() || !data.ai_available || activeJobs.some(j => j.kind === 'story_generate')" @click="run('generate')"><AppIcon name="Film"/>Susun dengan DeepSeek</button><button v-if="hasStoryboardTable" class="button secondary" @click="importTable">Impor tabel storyboard</button><button v-else class="button secondary" :disabled="!draft.script.trim()" @click="splitScript">Satu paragraf per adegan</button></div><p class="muted small">Naskah dan arahan gaya dikirim ke DeepSeek saat Anda menggunakan AI. Aset unggahan tidak dikirim.</p><p v-if="!data.ai_available" class="notice">DeepSeek belum dikonfigurasi. Anda tetap dapat menulis adegan dan memilih template secara manual.</p><button class="text-button" @click="tab = 'scenes'">Atau susun adegan sendiri <AppIcon name="ArrowRight" :size="14"/></button></div>
           <div v-if="tab === 'scenes'" class="story-form"><div class="visual-tools"><div><h3>Ilustrasi storyboard</h3><p>Isi adegan dengan gambar animasi dari catatan visual.</p></div><div class="story-actions"><button class="button secondary" @click="suggestVisuals()">Isi visual kosong</button><button class="button primary" :disabled="!data.ai_available || activeJobs.some(j => j.kind === 'story_generate')" @click="run('generate', 'visuals')">Buat visual dengan DeepSeek</button></div><p class="muted small">Ilustrasi animasi, bukan foto. Unggahan Anda tetap dipakai.</p></div><div class="scene-strip" role="group" aria-label="Pilih adegan"><button v-for="(s,i) in draft.scenes" :key="s.id" :aria-pressed="selected === i" @click="selected = i"><span>{{ String(i+1).padStart(2,'0') }}</span><strong>{{ s.title || 'Tanpa judul' }}</strong><small>{{ s.duration_ms / 1000 }} dtk</small></button><button class="scene-add" :disabled="draft.scenes.length >= 20" aria-label="Tambah adegan" @click="addScene"><AppIcon name="Plus"/></button></div>
             <template v-if="scene"><div class="scene-controls"><strong>Adegan {{ selected+1 }}</strong><div class="row gap-2"><button class="icon-button" aria-label="Geser adegan ke kiri" :disabled="selected === 0" @click="moveScene(-1)"><AppIcon name="ChevronLeft"/></button><button class="icon-button" aria-label="Geser adegan ke kanan" :disabled="selected === draft.scenes.length-1" @click="moveScene(1)"><AppIcon name="ChevronRight"/></button><button class="icon-button" aria-label="Hapus adegan" :disabled="draft.scenes.length === 1" @click="removeScene"><AppIcon name="Trash2"/></button></div></div><div class="story-two-col"><label>Tata letak<select v-model="scene.layout"><option value="title">Judul & teks</option><option value="split">Gambar & teks</option><option value="quote">Kutipan</option><option value="stat">Angka utama</option></select></label><label>Durasi (detik)<input :value="scene.duration_ms / 1000" type="number" min="1" max="30" step="0.1" @input="scene.duration_ms = Math.round(Number(($event.target as HTMLInputElement).value)*1000)"/></label></div><label>Judul adegan<input v-model="scene.title" maxlength="120"/></label><label>Teks layar<textarea v-model="scene.text" rows="3" maxlength="360"/></label><label>Narasi / subtitle<textarea v-model="scene.narration" rows="3" maxlength="600" @input="clearSceneCaptions"/></label><label class="checkbox-label"><input v-model="scene.show_caption" type="checkbox"/>Tampilkan narasi sebagai subtitle</label><label>Catatan visual<textarea v-model="scene.visual_note" rows="2" maxlength="500" placeholder="Contoh: penampang buah kopi dengan dua biji, lalu pisahkan perlahan"/></label>
               <div class="illustration-controls"><h3>Ilustrasi adegan</h3><p v-if="scene.asset_id" class="notice">Unggahan gambar/video sedang dipakai. Pilih Ilustrasi / latar template pada Media adegan untuk menampilkan ilustrasi.</p><label>Jenis ilustrasi<select v-model="scene.visual.kind" :disabled="!!scene.asset_id"><option v-for="option in visualOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label><template v-if="scene.visual.kind !== 'none'"><label>Gerakan ilustrasi<select v-model="scene.visual.motion"><option value="gentle">Animasi lembut</option><option value="still">Diam</option></select></label><label v-if="scene.visual.kind === 'coffee_reveal'">Ungkap jawaban setelah (detik)<input :value="scene.visual.reveal_ms / 1000" type="number" min="0" max="10" step="0.1" @input="scene.visual.reveal_ms = Math.round(Number(($event.target as HTMLInputElement).value)*1000)"/></label><template v-if="['diagram','comparison','steps'].includes(scene.visual.kind)"><div v-for="(item,i) in scene.visual.items" :key="i" class="visual-item-editor"><label>Objek {{ i+1 }}<select v-model="item.icon"><option v-for="icon in visualIcons" :key="icon.value" :value="icon.value">{{ icon.label }}</option></select></label><label>Label {{ i+1 }}<input v-model="item.label" maxlength="32"/></label><button class="icon-button" :aria-label="`Hapus objek ${i+1}`" @click="scene.visual.items.splice(i,1)"><AppIcon name="X" :size="15"/></button></div><button class="button secondary" :disabled="scene.visual.items.length >= 4" @click="scene.visual.items.push({icon:'box',label:''})">Tambah objek</button></template></template><div class="story-actions"><button class="button secondary" :disabled="!!scene.asset_id" @click="suggestVisuals(scene.id)">Ilustrasikan adegan ini</button><button class="text-button" :disabled="!!scene.asset_id || !data.ai_available || activeJobs.some(j => j.kind === 'story_generate')" @click="run('generate','visuals',scene.id)">Gunakan DeepSeek untuk adegan ini</button></div></div>
@@ -139,24 +145,24 @@ onBeforeRouteLeave(to => {if(dirty.value && !leaving.value) {leaveTo.value = to.
   </div>
 </template>
 <style scoped>
-.story-editor-page { height: 100dvh; display: flex; flex-direction: column; min-height: 0; background: #f6f7f3; }
-.story-header { display: flex; align-items: center; gap: 12px; padding: 16px 22px; background: white; border-bottom: 1px solid #dfe5df; flex: none; }
+.story-editor-page { height: var(--workspace-height, 100dvh); display: flex; flex-direction: column; min-height: 0; background: var(--color-canvas); }
+.story-header { display: flex; align-items: center; gap: 12px; padding: 16px 22px; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex: none; }
 .story-heading { flex: 1; min-width: 0; }
 .story-heading input { border: 0; background: transparent; padding: 0; min-height: 28px; font-weight: 600; font-size: 17px; width: 100%; }
-.story-heading small { color: #7a837d; font-size: 10px; }
-.story-message { display: flex; align-items: center; justify-content: space-between; padding: 5px 22px; background: #e9f1e9; color: #355d49; font-size: 12px; flex: none; margin: 0; }
-.story-workspace { display: grid; grid-template-columns: minmax(280px,1fr) minmax(390px,480px); flex: 1; min-height: 0; }
-.story-player-panel { padding: 24px; display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; }
-.story-preview-stage { display: flex; align-items: center; justify-content: center; flex: 1; min-height: 100px; padding: 20px; background: #252c28; border-radius: 10px; overflow: hidden; }
+.story-heading small { color: var(--color-text-muted); font-size: 10px; }
+.story-message { display: flex; align-items: center; justify-content: space-between; padding: 5px 22px; background: #203129; color: var(--color-positive); font-size: 12px; flex: none; margin: 0; }
+.story-workspace { display: grid; grid-template-columns: minmax(280px,1fr) minmax(390px,450px); flex: 1; min-height: 0; }
+.story-player-panel { padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
+.story-preview-stage { display: flex; align-items: center; justify-content: center; flex: 1; min-height: 100px; padding: 16px; border: 1px solid #2b3036; background: #0e1012; border-radius: 6px; overflow: hidden; }
 .story-preview-footer { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
-.story-preview-footer > span { font-size: 9px; letter-spacing: 1.4px; color: #77847a; }
+.story-preview-footer > span { font-size: 9px; letter-spacing: 1.4px; color: var(--color-text-muted); }
 .story-preview-footer label { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 11px; }
 .story-preview-footer select { min-height: 34px; padding: 5px; }
-.story-tools { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid #dfe5df; background: white; }
-.story-tabs { display: flex; gap: 16px; overflow-x: auto; padding: 0 20px; border-bottom: 1px solid #e3e8e0; flex: none; }
-.story-tabs button { flex-shrink:0; border: 0; border-bottom: 2px solid transparent; background: none; padding: 16px 0; font-size: 12px; cursor: pointer; color: #717a73; }
-.story-tabs button[aria-selected=true] { color: #355d78; border-color: #355d78; }
-.story-tabs span { margin-left: 5px; padding: 2px 4px; background: #edf1f0; border-radius: 3px; font-size: 9px; }
+.story-tools { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--color-border); background: var(--color-surface); }
+.story-tabs { display: flex; gap: 16px; overflow-x: auto; padding: 0 20px; border-bottom: 1px solid var(--color-border); flex: none; }
+.story-tabs button { flex-shrink:0; border: 0; border-bottom: 2px solid transparent; background: none; padding: 16px 0; font-size: 12px; cursor: pointer; color: var(--color-text-muted); }
+.story-tabs button[aria-selected=true] { color: var(--color-accent); border-color: var(--color-accent); font-weight: 600; }
+.story-tabs span { margin-left: 5px; padding: 2px 4px; background: var(--color-surface-muted); border-radius: 3px; font-size: 9px; }
 .story-tool-content { overflow-y: auto; flex: 1; min-height: 0; }
 .story-form { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
 .story-form label { margin: 0; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
@@ -164,52 +170,52 @@ onBeforeRouteLeave(to => {if(dirty.value && !leaving.value) {leaveTo.value = to.
 .story-form textarea { line-height: 1.65; resize: vertical; }
 .story-form p { margin: 0; }
 .section-heading h2 { font-size: 20px; line-height: 1.4; margin: 10px 0; }
-.section-heading p { color: #778079; font-size: 12px; line-height: 1.7; }
-.visual-tools { padding: 16px; border: 1px solid #dce5d7; background: #f2f6ed; border-radius: 10px; display: grid; gap: 12px; }
-.visual-tools p { font-size: 12px; line-height: 1.6; margin-top: 6px; color: #61745f; }
+.section-heading p { color: var(--color-text-muted); font-size: 12px; line-height: 1.7; }
+.visual-tools { padding: 16px; border: 1px solid var(--color-border); background: var(--color-surface-muted); border-radius: 6px; display: grid; gap: 12px; }
+.visual-tools p { font-size: 12px; line-height: 1.6; margin-top: 6px; color: var(--color-text-muted); }
 .visual-item-editor { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
 .story-actions { display: flex; flex-direction: column; gap: 8px; }
 .story-two-col { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .story-two-col input, .story-form select { width: 100%; min-width: 0; }
 .scene-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
-.scene-strip button { flex: 0 0 110px; padding: 12px; border: 1px solid #dfe5df; border-radius: 8px; background: #f8f9f6; display: grid; gap: 8px; text-align: left; cursor: pointer; }
-.scene-strip button[aria-pressed=true] { border-color: #5c7a68; background: #edf3e9; }
-.scene-strip span { font-size: 10px; color: #6b7c6e; }
+.scene-strip button { flex: 0 0 110px; padding: 12px; border: 1px solid var(--color-border); border-radius: 5px; background: var(--color-surface); display: grid; gap: 8px; text-align: left; cursor: pointer; }
+.scene-strip button[aria-pressed=true] { border-color: var(--color-accent); background: #302a21; }
+.scene-strip span { font-size: 10px; color: var(--color-text-muted); }
 .scene-strip strong { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 85px; }
-.scene-strip small { color: #778079; font-size: 10px; }
+.scene-strip small { color: var(--color-text-muted); font-size: 10px; }
 .scene-strip .scene-add { flex-basis: 40px; align-items: center; justify-content: center; }
 .scene-controls { display: flex; justify-content: space-between; align-items: center; }
 .scene-controls strong { font-size: 14px; }
-.asset-section, .prompt-section, .illustration-controls { border-top: 1px solid #e3e8e0; padding-top: 20px; display: flex; flex-direction: column; gap: 14px; }
+.asset-section, .prompt-section, .illustration-controls { border-top: 1px solid var(--color-border); padding-top: 20px; display: flex; flex-direction: column; gap: 14px; }
 .asset-section h3, .illustration-controls h3, .visual-tools h3 { font-size: 13px; margin: 0; }
-.story-upload { padding: 16px; border: 1px dashed #a7b9ac; border-radius: 8px; background: #f5f8f3; }
+.story-upload { padding: 16px; border: 1px dashed #545a63; border-radius: 5px; background: var(--color-canvas); }
 .story-upload input { font-size: 11px; border: 0; padding: 0; min-height: 24px; }
 .theme-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
-.theme-item > button:first-child { width: 100%; min-height: 100px; border-radius: 8px; border: 0; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 12px; cursor: pointer; }
+.theme-item > button:first-child { width: 100%; min-height: 100px; border-radius: 5px; border: 0; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 12px; cursor: pointer; }
 .theme-item span { font-size: 28px; }
 .theme-item strong { font-size: 10px; overflow-wrap: anywhere; text-align: left; }
 .story-colors { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
 .story-colors input { width: 100%; height: 38px; padding: 3px; }
-.story-job { border: 1px solid #dfe5df; border-radius: 8px; padding: 12px; display: grid; gap: 12px; }
+.story-job { border: 1px solid var(--color-border); border-radius: 5px; padding: 12px; display: grid; gap: 12px; }
 .story-job :deep(.job-row) { padding: 0; flex-wrap: wrap; }
-.scene-image {width:100%; max-height:180px; object-fit:contain; background:#e9eee8; border-radius:6px;}
+.scene-image {width:100%; max-height:180px; object-fit:contain; background:#0e1012; border-radius:6px;}
 .scene-audio {width:100%;}
-.proposal-warnings {margin:14px 0; padding-left:20px; font-size:12px; line-height:1.6; color:#85571e;}
+.proposal-warnings {margin:14px 0; padding-left:20px; font-size:12px; line-height:1.6; color:var(--color-accent);}
 .story-downloads { display: grid; gap: 12px; }
-.story-downloads video { max-height: 220px; width: 100%; background: #202923; border-radius: 6px; }
-.proposal-preview { height: 300px; padding: 12px; background: #252c28; border-radius: 8px; margin-top: 16px; }
+.story-downloads video { max-height: 220px; width: 100%; background: #0e1012; border-radius: 6px; }
+.proposal-preview { height: 300px; padding: 12px; background: #0e1012; border-radius: 5px; margin-top: 16px; }
 .proposal-scenes { max-height: 130px; overflow-y: auto; margin-top: 12px; font-size: 12px; }
-.proposal-scenes p { padding: 8px 0; border-bottom: 1px solid #e3e8e0; }
+.proposal-scenes p { padding: 8px 0; border-bottom: 1px solid var(--color-border); }
 .story-mobile-switch { display: none; }
 @media(max-width: 1050px) {.story-workspace {grid-template-columns: minmax(200px,1fr) 390px;} .story-player-panel {padding: 14px;} .story-header {padding: 12px;} .story-header .button {font-size: 11px; padding: 8px;}}
-@media(max-width: 760px) {
-  .story-editor-page { height: calc(100dvh - 96px); }
+@media(max-width: 900px) {
+  .story-editor-page { height: var(--workspace-height, calc(100dvh - 104px)); }
   .story-header {flex-wrap: wrap; gap: 8px;}
   .story-header > .row { width: 100%; justify-content: flex-end; }
   .story-header .button {min-height: 36px;}
   .story-mobile-switch {display: flex; gap: 6px; padding: 8px 14px;}
-  .story-mobile-switch button {flex: 1; border: 0; padding: 8px; border-radius: 6px; background: #e8ede7; color: #5b7061;}
-  .story-mobile-switch button[aria-pressed=true] {background: #355d4b; color: white;}
+  .story-mobile-switch button {flex: 1; border: 0; padding: 8px; border-radius: 6px; background: var(--color-surface-muted); color: var(--color-text-muted);}
+  .story-mobile-switch button[aria-pressed=true] {background: var(--color-accent); color: #191712;}
   .story-workspace {display: flex; flex-direction: column;}
   .story-tools, .story-player-panel {flex: 1;}
   .show-edit .story-player-panel, .show-preview .story-tools {display: none;}
@@ -217,5 +223,57 @@ onBeforeRouteLeave(to => {if(dirty.value && !leaving.value) {leaveTo.value = to.
   .story-tabs {gap: 20px;}
   .story-preview-footer > span {display: none;}
   .proposal-preview {height: 220px;}
+}
+.story-heading small { display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+.save-indicator { width: 5px; height: 5px; border-radius: 50%; background: var(--color-positive); }
+.has-changes .save-indicator { background: var(--color-accent); }
+.header-duration { padding-left: 10px; margin-left: 4px; border-left: 1px solid var(--color-border); font-family: ui-monospace, monospace; }
+.story-monitor-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--color-text-muted); font: 10px ui-monospace, monospace; letter-spacing: .6px; flex: none; }
+.story-monitor-heading b { font-weight: 400; margin-left: 12px; color: #c2c7ce; }
+.story-preview-footer { flex: none; }
+.story-preview-footer > span { font: 10px ui-monospace, monospace; letter-spacing: .5px; }
+.story-preview-footer select { border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface); color: var(--color-text); }
+.story-sequence { flex: none; border-top: 1px solid var(--color-border); padding-top: 13px; margin-top: 2px; min-width: 0; }
+.sequence-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+.sequence-heading h2 { color: var(--color-text-muted); font-size: 11px; font-weight: 500; }
+.sequence-heading > span { font: 11px ui-monospace, monospace; color: var(--color-text); }
+.sequence-tracks { display: flex; gap: 4px; padding-bottom: 3px; overflow-x: auto; }
+.sequence-tracks button { flex-basis: 96px; flex-shrink: 0; min-width: 96px; max-width: 220px; min-height: 70px; padding: 8px 10px; border: 1px solid #454d56; border-top: 3px solid #66707d; border-radius: 3px; background: #262c33; color: var(--color-text); text-align: left; display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.sequence-tracks button[aria-pressed=true] { border-color: var(--color-accent); background: #312a21; }
+.sequence-tracks button span, .sequence-tracks button small { font: 10px ui-monospace, monospace; color: var(--color-text-muted); }
+.sequence-tracks button strong { grid-column: 1 / -1; grid-row: 2; font-size: 11px; line-height: 1.35; font-weight: 500; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+.sequence-tracks button[aria-pressed=true] span { color: var(--color-accent); }
+.story-caption-note { flex: none; font-size: 10px; line-height: 1.5; color: var(--color-text-muted); }
+.story-form select, .story-form input[type=color] { color: var(--color-text); background: var(--color-canvas); border: 1px solid var(--color-border); border-radius: 4px; padding: 8px 10px; min-height: 36px; }
+.story-form .section-heading .eyebrow { font: 10px ui-monospace, monospace; letter-spacing: 1px; color: var(--color-accent); }
+.story-form .section-heading h2 { font-size: 20px; margin-block: 8px; letter-spacing: -.3px; }
+.story-form .visual-tools { border-left: 2px solid #666f7a; padding: 14px; }
+.scene-strip button { min-height: 83px; }
+.scene-strip button[aria-pressed=true] span { color: var(--color-accent); }
+.scene-strip button:hover:not(:disabled) { border-color: #737d8a; }
+.scene-controls { padding-bottom: 12px; border-bottom: 1px solid var(--color-border); }
+.theme-item > button:first-child { outline: 1px solid #ffffff20; outline-offset: -1px; }
+.story-job { background: var(--color-canvas); }
+.proposal-scenes { max-height: 180px; color: var(--color-text-muted); line-height: 1.65; }
+.proposal-scenes strong { color: var(--color-text); }
+.story-tabs button:focus-visible { outline-offset: -4px; }
+@media (max-width: 900px) {
+  .story-player-panel { padding: 12px; }
+  .story-monitor-heading { font-size: 9px; }
+  .story-preview-stage { padding: 10px; }
+  .story-tools { border-left: 0; border-top: 1px solid var(--color-border); }
+  .story-header > .row { padding-left: 44px; }
+  .story-header > .row .button { flex: 1; }
+  .story-header .button { min-height: 38px; font-size: 12px; }
+  .story-tabs { gap: 0; justify-content: space-between; padding-inline: 16px; }
+  .story-tabs button { min-height: 46px; padding-inline: 3px; }
+  .story-monitor-heading b { margin-left: 7px; }
+  .sequence-tracks button { min-height: 62px; }
+  .story-caption-note { font-size: 10px; }
+}
+@media (max-height: 720px) and (min-width: 901px) {
+  .story-player-panel { gap: 8px; padding: 12px 16px; }
+  .sequence-tracks button { min-height: 58px; }
+  .story-caption-note { display: none; }
 }
 </style>

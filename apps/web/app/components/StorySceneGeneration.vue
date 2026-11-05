@@ -21,11 +21,13 @@ watch(() => props.capabilities, value => {if (value && !value.voices.includes(vo
   </section>
 </template>
 <style scoped>
-.scene-generation {display:grid; gap:14px; border-top:1px solid #e3e8e0; padding-top:20px; min-width:0;}
+.scene-generation {display:grid; gap:14px; border-top:1px solid var(--color-border); padding-top:20px; min-width:0;}
 .scene-generation h3 {font-size:13px; margin:0;}
 .scene-generation p {font-size:12px; line-height:1.6; margin:0;}
 .scene-generation label {display:grid; gap:8px; font-size:12px; margin:0;}
 .scene-generation .checkbox-label {display:flex; align-items:center; gap:8px;}
 .scene-generation select {width:100%; min-width:0;}
 .scene-generation button {white-space:normal;}
+.scene-generation select {color:var(--color-text); background:var(--color-canvas); border:1px solid var(--color-border); min-height:36px; padding:8px 10px; border-radius:4px;}
+.scene-generation h3 {padding-left:10px; border-left:2px solid var(--color-accent);}
 </style>

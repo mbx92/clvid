@@ -6,7 +6,7 @@
 .subtitle-settings input[type=checkbox] { flex: none; }
 .subtitle-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .subtitle-presets button { border: 1px solid #ffffff30; border-radius: 6px; min-height: 64px; padding: 8px 4px; cursor: pointer; }
-.subtitle-presets button:hover, .subtitle-presets button:focus-visible { outline: 2px solid #507c9b; outline-offset: 2px; }
+.subtitle-presets button:hover, .subtitle-presets button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .subtitle-presets strong { display: block; font-size: 14px; }
 .subtitle-presets small { font-size: 9px; }
 .subtitle-custom { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -18,9 +18,9 @@
 .fixed-workspace .subtitle-settings input[type=range] { margin: 5px 0 0; }
 .fixed-workspace .caption-preview { overflow: visible; max-width: 84%; }
 .workspace-switch { display: none; }
-.tool-tabs { display: flex; gap: 4px; padding: 4px; background: #edf1f0; border-radius: 6px; margin-bottom: 12px; }
+.tool-tabs { display: flex; gap: 4px; padding: 4px; background: var(--color-surface-muted); border-radius: 6px; margin-bottom: 12px; }
 .tool-tabs button, .workspace-switch button { flex: 1; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
-.tool-tabs button[aria-pressed=true], .workspace-switch button[aria-pressed=true] { background: white; color: #355d78; box-shadow: 0 1px 3px #0001; }
+.tool-tabs button[aria-pressed=true], .workspace-switch button[aria-pressed=true] { background: var(--color-surface); color: var(--color-accent); box-shadow: 0 1px 3px #0001; }
 .fixed-workspace { height: 100dvh; min-height: 0; overflow: hidden; }
 .editor-page.fixed-workspace { display: flex; flex-direction: column; }
 .fixed-workspace .editor-header { flex: none; padding: 14px 22px; position: static; }
@@ -71,7 +71,7 @@
   .subtitle-settings { gap: 6px; }
   .subtitle-presets button { min-height: 52px; padding: 6px 4px; }
   .fixed-workspace { height: calc(100dvh - 60px); }
-  .workspace-switch { display: flex; flex: none; gap: 4px; margin: 0 12px 8px; padding: 3px; background: #edf1f0; border-radius: 6px; }
+  .workspace-switch { display: flex; flex: none; gap: 4px; margin: 0 12px 8px; padding: 3px; background: var(--color-surface-muted); border-radius: 6px; }
   .fixed-workspace .editor-header { padding: 10px 14px; }
   .fixed-workspace .editor-header .header-actions { margin-top: 8px; }
   .fixed-workspace .editor-header .button { min-height: 34px; padding: 6px 10px; }

@@ -31,18 +31,24 @@ function add() {
   </section>
 </template>
 <style scoped>
-.caption-editor {display:grid; gap:14px; border-top:1px solid #e3e8e0; padding-top:20px; min-width:0;}
+.caption-editor {display:grid; gap:14px; border-top:1px solid var(--color-border); padding-top:20px; min-width:0;}
 .caption-heading {display:flex; align-items:center; justify-content:space-between; gap:8px;}
 .caption-heading h3 {font-size:13px; margin:0;}
-.caption-heading span {font-size:10px; color:#866321;}
-.caption-heading .timed {color:#2b694b;}
+.caption-heading span {font-size:10px; color:var(--color-accent);}
+.caption-heading .timed {color:var(--color-positive);}
 .caption-editor p {margin:0; font-size:12px; line-height:1.6;}
 .cue-details summary {font-size:12px; cursor:pointer;}
 .cue-details > p {margin:12px 0;}
 .caption-cue {margin:12px 0; display:grid; gap:8px;}
 .cue-top {display:grid; grid-template-columns:18px minmax(0,1fr) minmax(0,1fr) 28px; align-items:end; gap:8px;}
-.cue-top strong {font-size:11px; align-self:center; color:#77847a;}
+.cue-top strong {font-size:11px; align-self:center; color:var(--color-text-muted);}
 .cue-top label {display:grid; gap:6px; font-size:10px; margin:0;}
 .cue-top input,.caption-cue textarea {width:100%; min-width:0; font-size:12px;}
 .cue-actions {display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:12px;}
+.caption-heading span {font:10px ui-monospace,monospace; padding:4px 6px; background:var(--color-canvas); border:1px solid var(--color-border); border-radius:3px;}
+.caption-cue {border:1px solid var(--color-border); background:var(--color-canvas); padding:10px; border-radius:4px;}
+.cue-top input {font-family:ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+.cue-top strong {font-family:ui-monospace,monospace;}
+.cue-top label {font-size:11px;}
+.cue-details summary::marker {color:var(--color-accent);}
 </style>

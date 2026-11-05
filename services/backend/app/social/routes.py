@@ -8,14 +8,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import Field, model_validator
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.orm import Session
 from app.api.auth import current_user
 from app.api.errors import AppError
 from app.api.schemas import StrictModel
 from app.config import get_settings
 from app.db import get_db
-from app.domain.models import Asset, Clip, ClipRevision, Export, Project, Publication, SocialAccount, SocialOAuthState, User, utcnow
+from app.domain.models import Asset, Clip, ClipRevision, Export, Project, Publication, PublicationAutomation, SocialAccount, SocialOAuthState, User, YouTubeSyncState, YouTubeVideo, utcnow
 from app.storage.local import LocalStorage
 from . import oauth
 from .security import PLATFORMS, callback_url, configured, media_signature, public_media_ready, seal, unseal
@@ -72,11 +72,81 @@ def post_data(db,post):
     result={k:getattr(post,k) for k in ('id','project_id','export_id','account_id','platform','title','caption','status','scheduled_at','timezone','version','remote_id','remote_url','error_message','created_at')}
     result['scheduled_at']=aware(post.scheduled_at)
     result['options']=post.options_json
+    result['automatic']=post.request_key.startswith('auto:')
     account=db.get(SocialAccount,post.account_id) if post.account_id else None
     result['account_name']=account.name if account else None
     export=db.get(Export,post.export_id) if post.export_id else None
     result['preview_url']=f'/api/v1/assets/{export.mp4_asset_id}/content' if export and export.mp4_asset_id else None
     return result
+
+
+class AutomationInput(StrictModel):
+    enabled: bool = True
+    timezone: Literal['Asia/Makassar','Asia/Jakarta','Asia/Jayapura','UTC'] = 'Asia/Makassar'
+    times: list[str] = Field(default_factory=lambda: ['18:00'], min_length=1, max_length=6)
+    account_ids: list[str] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode='after')
+    def valid_slots(self):
+        import re
+        if any(not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', value) for value in self.times):
+            raise ValueError('Gunakan jam HH:MM, misalnya 18:00.')
+        minutes = sorted({int(t[:2])*60+int(t[3:]) for t in self.times})
+        if len(minutes) != len(self.times) or any(b-a < 30 for a,b in zip(minutes,minutes[1:])):
+            raise ValueError('Slot harus berbeda dan berjarak minimal 30 menit.')
+        self.times = sorted(self.times)
+        self.account_ids = list(dict.fromkeys(self.account_ids))
+        return self
+
+
+@router.get('/automation')
+def automation(user:User=Depends(current_user),db:Session=Depends(get_db)):
+    from .planner import preferences
+    return preferences(db,user.id)
+
+
+@router.put('/automation')
+def update_automation(body:AutomationInput,user:User=Depends(current_user),db:Session=Depends(get_db)):
+    db.scalar(select(User).where(User.id==user.id).with_for_update())
+    for account_id in body.account_ids:
+        account=own_account(db,user,account_id)
+        if not account.connected: raise AppError(409,'SOCIAL_SETUP','Hubungkan kembali akun tujuan.')
+    row=db.get(PublicationAutomation,user.id)
+    if not row:
+        row=PublicationAutomation(owner_id=user.id); db.add(row)
+    row.settings_json=body.model_dump(); db.commit()
+    return row.settings_json
+
+
+@router.post('/automation/scan')
+def scan_automation(user:User=Depends(current_user),db:Session=Depends(get_db)):
+    from .planner import plan_owner
+    created=plan_owner(db,user.id); db.commit()
+    return {'created':created}
+
+
+@router.get('/approvals')
+def approvals(offset:int=Query(default=0,ge=0),user:User=Depends(current_user),db:Session=Depends(get_db)):
+    rows=list(db.scalars(select(Publication).where(Publication.owner_id==user.id,Publication.status=='draft',
+        Publication.request_key.startswith('auto:')).order_by(Publication.scheduled_at,Publication.id).offset(offset).limit(51)))
+    return {'items':[post_data(db,row) for row in rows[:50]], 'has_more':len(rows)>50}
+
+
+class ApprovalInput(StrictModel):
+    expected_version: int
+    consent: bool = False
+
+
+@router.post('/posts/{post_id}/approve')
+def approve_post(post_id:str,body:ApprovalInput,user:User=Depends(current_user),db:Session=Depends(get_db)):
+    row=own_post(db,user,post_id)
+    if row.status!='draft' or row.version!=body.expected_version:
+        raise AppError(409,'POST_CONFLICT','Usulan berubah atau sudah disetujui. Muat ulang antrean.')
+    request=PostInput(export_id=row.export_id or '',platform=row.platform,account_id=row.account_id,
+        title=row.title,caption=row.caption,scheduled_at=aware(row.scheduled_at),timezone=row.timezone,
+        status='scheduled',options=Options(**row.options_json),consent=body.consent,
+        request_key=row.request_key,expected_version=body.expected_version)
+    return save_post(db,user,request,row)
 
 
 def own_account(db,user,account_id):
@@ -97,6 +167,35 @@ def accounts(user:User=Depends(current_user),db:Session=Depends(get_db)):
     return {'items':[account_data(a) for a in db.scalars(select(SocialAccount).where(SocialAccount.owner_id==user.id,SocialAccount.connected.is_(True)))],
         'platforms':[{'id':p,'configured':configured(p),'callback_url':callback_url(p),
             'publishing_ready':configured(p) and (p!='instagram' or public_media_ready()) and (p!='tiktok' or s.tiktok_direct_post_enabled)} for p in PLATFORMS]}
+
+
+@router.get('/youtube/sync')
+def youtube_sync_status(user:User=Depends(current_user),db:Session=Depends(get_db)):
+    result=[]
+    for account in db.scalars(select(SocialAccount).where(SocialAccount.owner_id==user.id,SocialAccount.platform=='youtube',SocialAccount.connected.is_(True))):
+        state=db.get(YouTubeSyncState,account.id)
+        count,latest=db.execute(select(func.count(YouTubeVideo.id),func.max(YouTubeVideo.published_at)).where(
+            YouTubeVideo.account_id==account.id,YouTubeVideo.available.is_(True))).one()
+        result.append({'account_id':account.id,'name':account.name,'video_count':count,
+            'latest_published_at':aware(latest) if latest else None,
+            'last_synced_at':aware(state.last_synced_at) if state and state.last_synced_at else None,
+            'pending':not state or bool(state.cycle_started_at) or aware(state.next_sync_at)<=utcnow(),
+            'error_message':state.error_message if state else None})
+    return {'items':result}
+
+
+@router.post('/youtube/sync',status_code=202)
+def request_youtube_sync(user:User=Depends(current_user),db:Session=Depends(get_db)):
+    rows=list(db.scalars(select(SocialAccount).where(SocialAccount.owner_id==user.id,
+        SocialAccount.platform=='youtube',SocialAccount.connected.is_(True)).with_for_update()))
+    if not rows: raise AppError(409,'YOUTUBE_ACCOUNT','Hubungkan akun YouTube terlebih dahulu di Pengaturan.')
+    for account in rows:
+        state=db.get(YouTubeSyncState,account.id)
+        if not state:
+            state=YouTubeSyncState(account_id=account.id); db.add(state)
+        state.next_sync_at=utcnow(); state.error_message=None
+    db.commit()
+    return {'queued':len(rows)}
 
 
 @router.post('/oauth/{platform}/start')
@@ -139,6 +238,8 @@ def disconnect(account_id:str,user:User=Depends(current_user),db:Session=Depends
     if db.scalar(select(Publication.id).where(Publication.account_id==account.id,Publication.status.in_(ACTIVE))):
         raise AppError(409,'POST_BUSY','Tunggu publikasi yang sedang dikirim selesai sebelum melepas koneksi.')
     account.connected=False; account.token_ciphertext=''
+    db.execute(delete(YouTubeVideo).where(YouTubeVideo.account_id==account.id))
+    db.execute(delete(YouTubeSyncState).where(YouTubeSyncState.account_id==account.id))
     for post in db.scalars(select(Publication).where(Publication.account_id==account.id,Publication.status=='scheduled')):
         post.status='cancelled'; post.error_message='Koneksi akun dilepas.'; post.version+=1
     db.commit()
@@ -199,8 +300,21 @@ def validate_tiktok(title,caption,opt,duration,info):
 @router.get('/posts')
 def posts(start:datetime,end:datetime,user:User=Depends(current_user),db:Session=Depends(get_db)):
     if not start.tzinfo or not end.tzinfo or not start<end or end-start>timedelta(days=93): raise AppError(422,'CALENDAR_RANGE','Rentang kalender maksimal 93 hari dan harus menyertakan zona waktu.')
-    rows=db.scalars(select(Publication).where(Publication.owner_id==user.id,Publication.scheduled_at>=start,Publication.scheduled_at<end).order_by(Publication.scheduled_at).limit(1000))
-    return {'items':[post_data(db,row) for row in rows]}
+    rows=list(db.scalars(select(Publication).where(Publication.owner_id==user.id,Publication.scheduled_at>=start,Publication.scheduled_at<end).order_by(Publication.scheduled_at).limit(1000)))
+    # Prefer the actual YouTube publication time over the original upload schedule.
+    known=set(db.execute(select(YouTubeVideo.account_id,YouTubeVideo.video_id).where(YouTubeVideo.owner_id==user.id)).all())
+    items=[post_data(db,row) for row in rows if not (row.platform=='youtube' and (row.account_id,row.remote_id) in known)]
+    remote=db.execute(select(YouTubeVideo,SocialAccount).join(SocialAccount,SocialAccount.id==YouTubeVideo.account_id).where(
+        YouTubeVideo.owner_id==user.id,SocialAccount.connected.is_(True),YouTubeVideo.available.is_(True),
+        YouTubeVideo.published_at>=start,YouTubeVideo.published_at<end).order_by(YouTubeVideo.published_at).limit(1000))
+    for video,account in remote:
+        items.append({'id':'youtube:'+video.id,'account_id':account.id,'account_name':account.name,'platform':'youtube',
+            'title':video.title,'caption':video.caption,'status':'published','scheduled_at':aware(video.published_at),
+            'created_at':aware(video.published_at),'timezone':'UTC','options':{'privacy':'public'},
+            'source':'youtube','readonly':True,'thumbnail_url':video.thumbnail_url,
+            'remote_id':video.video_id,'remote_url':'https://www.youtube.com/watch?v='+video.video_id,'preview_url':None})
+    items.sort(key=lambda item: (aware(item['scheduled_at']),item['id']))
+    return {'items':items}
 
 
 def save_post(db,user,body,row=None):

@@ -32,6 +32,104 @@ def post_body(social,**changes):
             'scheduled_at':(utcnow()+timedelta(days=1)).isoformat(),'timezone':'Asia/Makassar','request_key':'calendar-test-001','options':{'privacy':'private','audience':'general'},**changes}
 
 
+def test_automatic_planner_approval_and_repeated_scan(clients,database,social):
+    owner,other=clients
+    assert owner.post('/api/v1/social/automation/scan').json()['created']==1
+    post=owner.get('/api/v1/social/approvals').json()['items'][0]
+    assert post['automatic'] and post['status']=='draft'
+    assert post['account_id']==social['account_id']
+    assert owner.post('/api/v1/social/automation/scan').json()['created']==0
+    assert other.get('/api/v1/social/approvals').json()['items']==[]
+    assert other.post(f"/api/v1/social/posts/{post['id']}/approve",json={'expected_version':1,'consent':True}).status_code==404
+    assert publisher.claim() is None
+    assert owner.post(f"/api/v1/social/posts/{post['id']}/approve",json={'expected_version':1}).status_code==422
+    result=owner.post(f"/api/v1/social/posts/{post['id']}/approve",json={'expected_version':1,'consent':True})
+    assert result.status_code==200,result.text
+    assert result.json()['status']=='scheduled'
+    assert owner.post(f"/api/v1/social/posts/{post['id']}/approve",json={'expected_version':1,'consent':True}).status_code==409
+    assert owner.get('/api/v1/social/approvals').json()['items']==[]
+    with database() as db:
+        p=db.get(Publication,post['id']); assert p.consent_at
+        p.scheduled_at=utcnow()-timedelta(minutes=1); db.commit()
+    assert publisher.claim()[0]==post['id']
+
+
+def test_automatic_settings_slots_and_rejection(clients,database,social):
+    owner,other=clients
+    assert other.put('/api/v1/social/automation',json={'account_ids':[social['account_id']]}).status_code==404
+    for times in ([],['25:00'],['18:00','18:00'],['18:00','18:15']):
+        assert owner.put('/api/v1/social/automation',json={'times':times}).status_code==422
+    assert owner.put('/api/v1/social/automation',json={'enabled':False}).status_code==200
+    assert owner.post('/api/v1/social/automation/scan').json()['created']==0
+    settings={'enabled':True,'times':['12:00','18:00'],'timezone':'Asia/Jakarta','account_ids':[social['account_id']]}
+    assert owner.put('/api/v1/social/automation',json=settings).status_code==200
+    assert owner.get('/api/v1/social/automation').json()==settings
+    # Reserve the first slot with a different draft, then ensure the planner skips it.
+    from app.social.planner import next_slot
+    slot=next_slot(settings,[],utcnow())
+    with database() as db:
+        account=db.get(SocialAccount,social['account_id'])
+        db.add(Publication(owner_id=account.owner_id,project_id=social['project_id'],account_id=account.id,
+            platform='youtube',title='Reserved',status='draft',scheduled_at=slot,options_json={},request_key='reserved-slot'))
+        db.commit()
+    assert owner.post('/api/v1/social/automation/scan').json()['created']==1
+    post=owner.get('/api/v1/social/approvals').json()['items'][0]
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    scheduled=datetime.fromisoformat(post['scheduled_at'])
+    assert scheduled>slot
+    assert scheduled.astimezone(ZoneInfo('Asia/Jakarta')).strftime('%H:%M') in settings['times']
+    assert owner.post(f"/api/v1/social/posts/{post['id']}/cancel").status_code==200
+    assert owner.post('/api/v1/social/automation/scan').json()['created']==0
+
+
+def test_planner_ignores_unready_and_duplicate_renders(clients,database,social):
+    owner=clients[0]
+    with database() as db:
+        export=db.get(Export,social['export_id']); export.status='running'; db.commit()
+    assert owner.post('/api/v1/social/automation/scan').json()['created']==0
+    with database() as db:
+        export=db.get(Export,social['export_id']); export.status='ready'
+        job=Job(project_id=social['project_id'],kind='export',stage='done',status='succeeded',input_fingerprint='other-render')
+        db.add(job); db.flush()
+        duplicate=Export(clip_revision_id=export.clip_revision_id,job_id=job.id,status='ready',mp4_asset_id=export.mp4_asset_id)
+        db.add(duplicate); db.commit(); latest_id=duplicate.id
+    assert owner.post('/api/v1/social/automation/scan').json()['created']==1
+    posts=owner.get('/api/v1/social/approvals').json()['items']
+    assert len(posts)==1 and posts[0]['export_id']==latest_id
+
+
+def test_approval_rechecks_missing_export_account_and_past_schedule(clients,database,social):
+    owner=clients[0]
+    owner.post('/api/v1/social/automation/scan')
+    post=owner.get('/api/v1/social/approvals').json()['items'][0]
+    url=f"/api/v1/social/posts/{post['id']}/approve"
+    body={'expected_version':1,'consent':True}
+    with database() as db:
+        db.get(Export,social['export_id']).status='failed'; db.commit()
+    assert owner.post(url,json=body).status_code==404
+    with database() as db:
+        db.get(Export,social['export_id']).status='ready'
+        db.get(SocialAccount,social['account_id']).connected=False; db.commit()
+    assert owner.post(url,json=body).status_code==409
+    with database() as db:
+        db.get(SocialAccount,social['account_id']).connected=True
+        db.get(Publication,post['id']).scheduled_at=utcnow()-timedelta(hours=1); db.commit()
+    assert owner.post(url,json=body).status_code==422
+    assert publisher.claim() is None
+
+
+def test_publisher_never_claims_unapproved_scheduled_record(clients,database,social):
+    owner=clients[0]
+    owner.post('/api/v1/social/automation/scan')
+    post=owner.get('/api/v1/social/approvals').json()['items'][0]
+    with database() as db:
+        row=db.get(Publication,post['id']); row.status='scheduled'; row.scheduled_at=utcnow()-timedelta(hours=1)
+        assert row.consent_at is None
+        db.commit()
+    assert publisher.claim() is None
+
+
 def test_calendar_ownership_timezone_drafts_and_idempotency(clients,database,social):
     owner,other=clients
     body=post_body(social,scheduled_at='2027-01-02T08:00:00+08:00')

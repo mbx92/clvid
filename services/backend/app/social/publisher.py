@@ -23,7 +23,7 @@ def claim():
             stale.status='uncertain'; stale.version+=1; stale.lease_expires_at=None
             stale.error_message='Koneksi worker terputus. Periksa status platform sebelum mengulang agar tidak terunggah dua kali.'
         post=db.scalar(select(Publication).where(
-            ((Publication.status=='scheduled') & (Publication.scheduled_at<=utcnow())) |
+            ((Publication.status=='scheduled') & Publication.consent_at.is_not(None) & (Publication.scheduled_at<=utcnow())) |
             ((Publication.status=='processing') & Publication.lease_expires_at.is_(None))
         ).order_by(Publication.updated_at).with_for_update(skip_locked=True).limit(1))
         if not post: return None
@@ -198,7 +198,15 @@ def run_one(post_id,version):
 
 def main():
     logging.basicConfig(level=logging.WARNING)
+    from .planner import plan_once
+    last_plan=0.0
     while True:
+        if time.monotonic()-last_plan>=60:
+            try:
+                plan_once()
+            except Exception:
+                log.exception('Automatic publication planning failed')
+            last_plan=time.monotonic()
         try:
             item=claim()
             if item: run_one(*item)

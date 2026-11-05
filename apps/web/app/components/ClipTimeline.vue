@@ -173,24 +173,24 @@ h2 { font-size: 14px; } h3 { font-size: 13px; }
 .timeline-zoom { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
 label { font-size: 12px; display: grid; gap: 6px; }
 input, textarea { width: 100%; min-width: 0; }
-.tracks-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--color-border); border-radius: 8px; background: #f8faf7; padding: 8px; }
+.tracks-scroll { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-field); padding: 8px; }
 .tracks { position: relative; min-width: 100%; padding-top: 8px; }
 .timeline-ruler { position: relative; display: block; width: 100%; height: 28px; border: none; background: transparent; margin-bottom: 8px; }
-.timeline-ruler span { position: absolute; top: 0; font-family: monospace; font-size: 10px; transform: translateX(-50%); }
+.timeline-ruler span { position: absolute; top: 0; font-family: ui-monospace, Consolas, monospace; font-size: 10px; color: var(--color-text-muted); transform: translateX(-50%); }
 .timeline-ruler span:first-child { transform: none; }.timeline-ruler span:last-child { transform: translateX(-100%); }
 .track { margin-bottom: 10px; }
-.track-label { display: block; margin-bottom: 4px; font-size: 10px; color: #68716f; }
-.track-lane { position: relative; height: 34px; border-radius: 4px; background: #e9eeea; }
+.track-label { display: block; margin-bottom: 4px; font-size: 10px; color: var(--color-text-muted); }
+.track-lane { position: relative; height: 34px; border-radius: 4px; background: #22272d; }
 .timeline-item { position: absolute; top: 0; height: 34px; min-width: 3px; }
 .timeline-block { position: absolute; inset: 0; width: 100%; border: 1px solid transparent; border-radius: 4px; padding: 0 12px; font-size: 10px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: grab; touch-action: none; }
-.video-block { background: #c6dce9; color: #25485c; }.cue-block { background: #d0e5da; color: #254e36; }.zoom-block { background: #e9daf6; color: #5c3275; }.title-block { background: #f7e3bc; color: #6e4b18; }
-.timeline-block.selected { border: 2px solid #356782; }
-.trim-handle { position: absolute; top: 2px; bottom: 2px; width: 9px; border: 0; border-radius: 3px; background: #345f6755; cursor: ew-resize; touch-action: none; z-index: 2; padding: 0; }
-.trim-handle.start { left: 1px; }.trim-handle.end { right: 1px; }.trim-handle:focus-visible { outline: 2px solid #356782; }
-.track-empty { font-size: 10px; line-height: 34px; padding: 0 8px; color: #747d78; }
-.clip-playhead { position: absolute; top: 22px; bottom: 0; width: 1px; background: #bf4d31; pointer-events: none; z-index: 3; }
-.clip-playhead::before { content: ''; position: absolute; top: -5px; left: -4px; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 7px solid #bf4d31; }
+.video-block { background: #284652; color: #c0e2ee; }.cue-block { background: #2a4439; color: #b4dfc5; }.zoom-block { background: #42394d; color: #d6c3ed; }.title-block { background: #54432b; color: #f1d5a7; }
+.timeline-block.selected { border: 2px solid var(--color-accent); }
+.trim-handle { position: absolute; top: 2px; bottom: 2px; width: 9px; border: 0; border-radius: 3px; background: #ffffff28; cursor: ew-resize; touch-action: none; z-index: 2; padding: 0; }
+.trim-handle.start { left: 1px; }.trim-handle.end { right: 1px; }.trim-handle:focus-visible { outline: 2px solid var(--color-accent); }
+.track-empty { font-size: 10px; line-height: 34px; padding: 0 8px; color: var(--color-text-muted); }
+.clip-playhead { position: absolute; top: 22px; bottom: 0; width: 1px; background: var(--color-accent); pointer-events: none; z-index: 3; }
+.clip-playhead::before { content: ''; position: absolute; top: -5px; left: -4px; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 7px solid var(--color-accent); }
 .timeline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.timeline-inspector { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--color-border); border-radius: 8px; }
+.timeline-inspector { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--color-border); border-radius: 5px; background: var(--color-surface-muted); }
 .time-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 </style>
