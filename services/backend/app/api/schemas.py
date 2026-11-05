@@ -30,10 +30,6 @@ class ProcessingSettingsInput(StrictModel):
         return self
 
 
-class SourceUrlInput(StrictModel):
-    url: str = Field(min_length=8, max_length=4096)
-
-
 class ProcessInput(StrictModel):
     language: Literal["auto", "id", "en"] = "auto"
     content_profile: Literal["general", "gaming"] = "general"
@@ -51,6 +47,17 @@ class ProcessInput(StrictModel):
         if self.min_duration_ms > self.max_duration_ms:
             raise ValueError("Durasi minimum harus lebih kecil dari maksimum.")
         return self
+
+
+class AutoProcessInput(ProcessInput):
+    """Processing an imported source always creates clips from its first transcript."""
+    analyze: Literal[True] = True
+    transcribe_again: Literal[False] = False
+
+
+class SourceUrlInput(StrictModel):
+    url: str = Field(min_length=8, max_length=4096)
+    process: AutoProcessInput | None = None
 
 
 class SourceRegion(StrictModel):

@@ -103,7 +103,7 @@ def _import_url(ctx: JobContext, scratch: Path):
         meta, preview = prepare_source(path, scratch, settings=settings, stage=ctx.stage,
                                        cancelled=ctx.cancelled, progress=ctx.progress)
         with session_scope() as db:
-            _, project = ctx.check(db)
+            job, project = ctx.check(db)
             current = db.get(Asset, project.source_asset_id) if project.source_asset_id else None
             if current and current.state not in ("failed", "invalid"):
                 raise MediaError("source_exists", "Video sumber sudah tersedia.")
@@ -116,6 +116,14 @@ def _import_url(ctx: JobContext, scratch: Path):
                 project.preview_asset_id = source.id
             project.status, project.error_message = "ready", None
             _complete(db, ctx, {"source_asset_id": source.id, "preview_asset_id": project.preview_asset_id})
+            if job.input_json.get("process") is not None:
+                # Source publication and its continuation share a transaction.
+                # Complete first so chaining also works at the active-job limit.
+                child = create_job(db, project, "transcribe", {
+                    **job.input_json["process"], "source_asset_id": source.id, "transcript_version": 1,
+                }, f"import-{job.id}")
+                child.limits_json = {**child.limits_json, **(job.limits_json or {})}
+                job.result_json = {**job.result_json, "next_job_id": child.id}
     finally:
         # Drop partial downloads immediately; they can be large or contain signed URLs.
         shutil.rmtree(scratch, ignore_errors=True)
@@ -153,12 +161,14 @@ def _transcribe(ctx: JobContext, scratch: Path):
         project.status, project.error_message = ("ready" if segments else "no_speech"), None
         _complete(db, ctx, {"transcript_id": transcript.id, "version": version, "segments": len(segments), "runtime": result.get("runtime", {})})
         if (segments or job.input_json.get("visual_analysis", False)) and job.input_json.get("analyze", True):
-            create_job(db, project, "analyze", {"transcript_id": transcript.id,
+            child = create_job(db, project, "analyze", {"transcript_id": transcript.id,
                         "content_profile": job.input_json.get("content_profile", "general"),
                         "visual_analysis": job.input_json.get("visual_analysis", False),
                         "count": job.input_json.get("count", 5),
                         "min_duration_ms": job.input_json.get("min_duration_ms", 30000),
                         "max_duration_ms": job.input_json.get("max_duration_ms", 60000)}, f"transcript-{transcript.id}")
+            child.limits_json = {**child.limits_json, **(job.limits_json or {})}
+            job.result_json = {**job.result_json, "next_job_id": child.id}
 
 
 def _analyze(ctx: JobContext, scratch: Path):

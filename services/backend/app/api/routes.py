@@ -250,10 +250,17 @@ def import_source_url(project_id: str, body: SourceUrlInput, idempotency_key: st
     except MediaError as exc:
         raise AppError(422, exc.code.upper(), exc.message) from exc
     params = {"url": url}
+    if body.process is not None:
+        params["process"] = body.process.model_dump(exclude={"transcribe_again"})
     if idempotency_key and db.scalar(select(JobRequest).where(JobRequest.project_id == project.id, JobRequest.kind == "import_url", JobRequest.idempotency_key == idempotency_key)):
         job = queue_job(db, project, "import_url", params, idempotency_key)
         db.commit()
         return job_data(job)
+    if body.process is not None:
+        if not get_settings().deepseek_api_key.strip():
+            raise AppError(422, "AI_NOT_CONFIGURED", "DeepSeek belum dikonfigurasi untuk membuat klip otomatis.")
+        if body.process.max_duration_ms > processing_limits(db, user.id)["max_clip_ms"]:
+            raise AppError(422, "CLIP_DURATION", "Rentang kandidat melebihi batas klip pada Pengaturan.")
     source = db.get(Asset, project.source_asset_id) if project.source_asset_id else None
     if source and source.state not in ("failed", "invalid"):
         raise AppError(409, "SOURCE_EXISTS", "Proyek ini sudah memiliki video atau upload masih berlangsung.")

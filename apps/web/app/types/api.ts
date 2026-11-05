@@ -26,3 +26,5 @@ export interface Revision { source_words?: SourceWord[]; id: string; revision: n
 export interface Clip { translation_available?: boolean; limits?: { min_clip_ms: number; max_clip_ms: number }; id: string; project_id: string; origin: string; revision: Revision; source_asset?: Asset; preview_asset?: Asset; media_duration_ms?: number; tracking_signatures?: Partial<Record<'face' | 'speaker', string>>; created_at: string }
 export interface Export { id: string; clip_id?: string; clip_revision_id: string; revision?: number; clip_title?: string; status: string; config: { width?: number; height?: number; resolution?: number }; mp4_asset?: Asset; srt_asset?: Asset; job_id: string; job?: Job; bytes?: number; created_at?: string }
 export interface Page<T> { items: T[]; total: number; page?: number; page_size?: number }
+export interface ResearchVideo { id: string; url: string; thumbnail_url: string; title: string; channel: string; description: string; duration_ms: number | null; view_count: number | null }
+export interface VideoResearch { query: string; items: ResearchVideo[]; message: string | null }

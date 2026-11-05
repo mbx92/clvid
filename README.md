@@ -9,6 +9,32 @@ Status implementasi dan bukti yang **sudah** diuji ada di
 [docs/PROGRESS.md](docs/PROGRESS.md). Ini bukan klaim production-ready. Tidak ada
 akun bawaan, data demo pada aplikasi, atau fallback AI palsu.
 
+## Riset video dan klip otomatis
+
+Buka **Studio → Riset & klip otomatis** (`/studio/research`), masukkan topik,
+lalu pilih satu sumber dari hasil pencarian YouTube. Atur jumlah klip,
+bahasa, profil konten, dan durasi, kemudian pilih **Buat klip otomatis**.
+Server mengimpor video, membuat transkrip, dan memilih momen menjadi klip
+secara berurutan. Setelah permintaan masuk antrean, halaman boleh ditutup.
+Pantau atau batalkan pekerjaan aktif dari halaman proyek; klip dapat ditinjau,
+diedit, dan diekspor di sana. Hasil tidak langsung diterbitkan ke platform lain.
+
+Pencarian membaca metadata publik melalui yt-dlp, tanpa API key atau cookie
+YouTube. Hasil bukan klaim bahwa isi video sudah dianalisis. Sumber privat,
+siaran langsung, dan hasil dengan durasi diketahui melebihi batas akun disaring.
+YouTube dapat membatasi pencarian atau unduhan; kegagalan ditampilkan dan tidak
+diganti data contoh. Gunakan sumber yang Anda miliki atau boleh gunakan.
+Pemilihan momen memerlukan konfigurasi DeepSeek yang sudah ada; transkripsi
+memakai Whisper lokal. Hasil dapat lebih sedikit bila tidak ada cukup momen
+yang sesuai. Profil gameplay dapat menyertakan analisis frame dengan kuota AI
+tambahan.
+
+API `POST /api/v1/research/search` menerima `{ "query": "topik", "count": 6 }`.
+Impor lama tetap berlaku; `POST /api/v1/projects/{id}/source-url` kini dapat
+menyertakan `process` berisi opsi klip otomatis. Child job dibuat atomik bersama
+penyelesaian tahap sebelumnya, membawa batas pemrosesan yang sama, dan memakai
+identitas permintaan untuk mencegah pengulangan klip karena pengiriman ulang.
+
 ## Kandidat konten game
 
 Pada **Buat kandidat → Jenis konten**, pilih **Game / gameplay**. Profil ini
