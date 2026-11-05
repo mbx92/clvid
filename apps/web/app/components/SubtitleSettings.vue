@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { SubtitleStyle } from '~/types/api'
 import { applySubtitlePreset, podcastSubtitlePreset, subtitleDefaults, subtitlePresets } from '~/utils/subtitle-style'
-const props = defineProps<{ modelValue: SubtitleStyle; effectiveSize: number; oversizedCues: number; missingTiming: number; timingError: string }>()
-const emit = defineEmits<{ 'update:modelValue': [value: SubtitleStyle]; repair:[] }>()
+const props = defineProps<{ modelValue: SubtitleStyle; effectiveSize: number; oversizedCues: number; missingTiming: number; timingError: string; recoveryBusy?: boolean }>()
+const emit = defineEmits<{ 'update:modelValue': [value: SubtitleStyle]; repair:[]; recover:[] }>()
 const section = ref('presets')
 const remotion = computed(() => style.value.renderer === 'remotion')
 const presetsOpen = ref(false)
@@ -50,7 +50,7 @@ function value(event: Event) { return (event.target as HTMLInputElement).value }
     <section class="size-placement"><h3>Ukuran &amp; posisi</h3>
     <label><span class="range-heading">Ukuran teks <span class="muted">{{ style.font_size }} px</span></span><input aria-label="Ukuran teks subtitle" type="range" min="24" max="100" step="2" :value="style.font_size" @input="update({ font_size: number($event), auto_fit: false })" /></label>
     <label class="checkbox-label"><input type="checkbox" :checked="style.auto_fit" @change="update({ auto_fit: checked($event) })" />Kecilkan otomatis agar muat dua baris</label>
-    <p v-if="podcast && style.enabled && (missingTiming || timingError)" class="error-text compact-help" role="status">{{ timingError || `${missingTiming} subtitle belum cocok dengan timestamp kata. Highlight belum tersedia. Buat ulang subtitle dari suara, cocokkan teks dengan transkrip, atau pilih template lain.` }}</p>
+    <div v-if="podcast && style.enabled && (missingTiming || timingError)" class="compact-help" role="status"><p class="error-text">{{ timingError || `${missingTiming} subtitle belum cocok dengan timestamp kata. Highlight belum tersedia. Buat ulang subtitle dari suara, cocokkan teks dengan transkrip, atau pilih template lain.` }}</p><button class="button secondary small-button" :disabled="recoveryBusy" @click="emit('recover')">Perbaiki dari audio</button></div>
     <p v-else-if="style.display_mode === 'words' && (missingTiming || timingError)" class="error-text compact-help" role="status">{{ timingError || `${missingTiming} cue belum cocok dengan timestamp kata. Gunakan teks transkrip asli atau pilih Kalimat lengkap.` }}</p>
     <div v-else-if="oversizedCues" class="compact-help" role="status"><p>{{ oversizedCues }} subtitle terlalu panjang pada ukuran ini.</p><button class="button secondary small-button" @click="emit('repair')">Sesuaikan subtitle</button></div>
     <p v-else class="muted compact-help">{{ style.auto_fit ? `Ukuran di preview: ${effectiveSize} px.` : 'Ukuran setara video 1080 px.' }}</p>
